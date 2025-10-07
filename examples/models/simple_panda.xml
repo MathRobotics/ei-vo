@@ -1,0 +1,61 @@
+<mujoco model="panda_simple">
+  <compiler angle="radian" coordinate="local" inertiafromgeom="true"/>
+  <option gravity="0 0 -9.81" timestep="0.002" integrator="RK4"/>
+
+  <default>
+    <joint limited="true" damping="2" armature="0.01" stiffness="5"/>
+    <geom type="capsule" size="0.04 0.15" rgba="0.7 0.7 0.7 1" material="arm"/>
+  </default>
+
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient" width="512" height="512" rgb1="0.65 0.75 0.9" rgb2="0.2 0.25 0.35"/>
+    <material name="arm" texture="sky" texrepeat="1 1" reflectance="0.08" specular="0.35" shininess="0.6"/>
+  </asset>
+
+  <worldbody>
+    <light name="top" pos="0 0 2.5" dir="0 0 -1" diffuse="1.1 1.1 1.1" specular="0.35 0.35 0.35" ambient="0.25 0.25 0.25"/>
+    <light name="fill" pos="-1.5 -1.5 1.5" dir="0.6 0.6 -0.5" diffuse="0.6 0.6 0.6" specular="0.2 0.2 0.2" ambient="0.15 0.15 0.15"/>
+    <geom name="floor" type="plane" size="3 3 0.1" rgba="0.9 0.9 0.9 1"/>
+
+    <body name="base" pos="0 0 0.1">
+      <geom type="box" size="0.08 0.08 0.1" rgba="0.2 0.2 0.2 1"/>
+      <site name="base_site" pos="0 0 0" size="0.01" rgba="1 0 0 0"/>
+
+      <body name="link1" pos="0 0 0.1">
+        <joint name="panda_joint1" type="hinge" axis="0 0 1" range="-2.8973 2.8973"/>
+        <geom fromto="0 0 0 0 0 0.3" size="0.05"/>
+
+        <body name="link2" pos="0 0 0.3" euler="0 90 0">
+          <joint name="panda_joint2" type="hinge" axis="0 0 1" range="-1.7628 1.7628"/>
+          <geom fromto="0 0 0 0 0 0.25" size="0.045"/>
+
+          <body name="link3" pos="0 0 0.25" euler="0 -90 0">
+            <joint name="panda_joint3" type="hinge" axis="0 0 1" range="-2.8973 2.8973"/>
+            <geom fromto="0 0 0 0 0 0.28" size="0.04"/>
+
+            <body name="link4" pos="0 0 0.28">
+              <joint name="panda_joint4" type="hinge" axis="0 1 0" range="-3.0718 -0.0698"/>
+              <geom fromto="0 0 0 0 0 0.25" size="0.035"/>
+
+              <body name="link5" pos="0 0 0.25" euler="0 90 0">
+                <joint name="panda_joint5" type="hinge" axis="0 0 1" range="-2.8973 2.8973"/>
+                <geom fromto="0 0 0 0 0 0.22" size="0.035"/>
+
+                <body name="link6" pos="0 0 0.22" euler="0 -90 0">
+                  <joint name="panda_joint6" type="hinge" axis="0 0 1" range="-0.0175 3.7525"/>
+                  <geom fromto="0 0 0 0 0 0.2" size="0.03"/>
+
+                  <body name="link7" pos="0 0 0.2">
+                    <joint name="panda_joint7" type="hinge" axis="0 1 0" range="-2.8973 2.8973"/>
+                    <geom fromto="0 0 0 0 0 0.18" size="0.03"/>
+                    <site name="ee_site" pos="0 0 0.18" size="0.015" rgba="0 0.5 1 0"/>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

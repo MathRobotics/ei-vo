@@ -1,6 +1,9 @@
-from ..core.core import RobotModel, Trajectory
+from typing import Optional, Tuple, Union
+
+from ..core.core import Trajectory
 import mujoco as mj, mujoco.viewer as viewer
-import numpy as np, time
+import numpy as np, time, pathlib
+import contextlib
 
 def detect_arm_joint_qaddr(m: mj.MjModel):
     """finger/gripper を除外し、腕7ヒンジの qpos index と名前を抽出"""
@@ -44,7 +47,40 @@ def clamp_to_limits(m: mj.MjModel, arm_qaddr: list[int], q: np.ndarray) -> np.nd
             q[:, i] = np.clip(q[:, i], low, high)
     return q
 
-def play(model_path: str, traj: Trajectory, slow=1.0, hz=240.0, camera=None, loop=False):
+def _init_recording(m: mj.MjModel, dt: float, record_path: Union[str, pathlib.Path],
+                    record_fps: Optional[float], record_size: Optional[Tuple[int, int]]):
+    """Initialise offscreen renderer and video writer for recording."""
+    try:
+        import imageio.v2 as imageio
+    except ImportError as exc:
+        raise RuntimeError(
+            "Recording requires the optional dependency 'imageio'."
+        ) from exc
+
+    path = pathlib.Path(record_path)
+    if path.suffix == "":
+        path = path.with_suffix(".mp4")
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if record_size is None:
+        width, height = 1280, 720
+    else:
+        width, height = record_size
+        if width <= 0 or height <= 0:
+            raise ValueError("record_size must contain positive integers")
+
+    renderer = mj.Renderer(m, height=height, width=width)
+    camera = mj.MjvCamera()
+    mj.mjv_defaultCamera(camera)
+
+    fps = record_fps if record_fps and record_fps > 0 else (1.0 / max(dt, 1e-9))
+    writer = imageio.get_writer(path.as_posix(), fps=fps)
+    return renderer, camera, writer
+
+
+def play(model_path: str, traj: Trajectory, slow=1.0, hz=240.0, camera=None, loop=False,
+         record_path: Optional[str] = None, record_fps: Optional[float] = None,
+         record_size: Optional[Tuple[int, int]] = None):
     m = mj.MjModel.from_xml_path(model_path)
     d = mj.MjData(m)
     arm_qaddr = detect_arm_joint_qaddr(m)
@@ -53,17 +89,72 @@ def play(model_path: str, traj: Trajectory, slow=1.0, hz=240.0, camera=None, loo
 
     q = clamp_to_limits(m, arm_qaddr, traj.q)
 
-    with viewer.launch_passive(m, d) as v:
-        # カメラ
-        v.cam.distance = 1.9
-        v.cam.azimuth  = 110
-        v.cam.elevation= -20
+    record_renderer = None
+    record_camera = None
+    record_writer = None
+    if record_path is not None:
+        record_renderer, record_camera, record_writer = _init_recording(
+            m, dt, record_path, record_fps, record_size
+        )
+
+    def _apply_camera_settings(cam_obj, settings):
+        if settings is None:
+            return
+        for key, value in settings.items():
+            if key == "lookat":
+                cam_obj.lookat[:] = np.asarray(value, dtype=float)
+            else:
+                setattr(cam_obj, key, value)
+
+    with contextlib.ExitStack() as stack:
+        v = stack.enter_context(viewer.launch_passive(m, d))
+        if record_writer is not None:
+            stack.callback(record_writer.close)
+        if record_renderer is not None:
+            stack.callback(record_renderer.close)
+
+        if camera is None:
+            if hasattr(mj, "mjv_defaultFreeCamera"):
+                mj.mjv_defaultFreeCamera(m, v.cam)
+            else:
+                mj.mjv_defaultCamera(v.cam)
+                if hasattr(m, "stat"):
+                    try:
+                        v.cam.lookat[:] = getattr(m.stat, "center")
+                    except Exception:
+                        pass
+                    distance = getattr(m.stat, "extent", None)
+                    if distance:
+                        v.cam.distance = distance
+        else:
+            _apply_camera_settings(v.cam, camera)
+
+        if record_camera is not None:
+            _apply_camera_settings(record_camera, {
+                "distance": v.cam.distance,
+                "azimuth": v.cam.azimuth,
+                "elevation": v.cam.elevation,
+                "lookat": v.cam.lookat,
+            })
 
         def play_once(v):
             for i in range(q.shape[0]):
                 for adr, qi in zip(arm_qaddr, q[i]):
                     d.qpos[adr] = float(qi)
                 mj.mj_forward(m, d)  # 物理なしで姿勢だけ更新
+                if (record_renderer is not None and record_writer is not None
+                        and record_camera is not None):
+                    _apply_camera_settings(record_camera, {
+                        "distance": v.cam.distance,
+                        "azimuth": v.cam.azimuth,
+                        "elevation": v.cam.elevation,
+                        "lookat": v.cam.lookat,
+                    })
+                    record_renderer.update_scene(d, camera=record_camera)
+                    frame = record_renderer.render()
+                    if frame.dtype != np.uint8:
+                        frame = np.clip(frame * 255, 0, 255).astype(np.uint8)
+                    record_writer.append_data(frame)
                 v.sync()
                 time.sleep(dt)
 
