@@ -2,10 +2,12 @@
 
 `examples` ディレクトリには Panda ロボットの MuJoCo モデルを使ったデモスクリプトが入っています。ここでは `demo_mj.py` の使い方と、軌道の準備・録画機能について説明します。
 
+リポジトリ内には学習用の簡易 MJCF（`examples/models/simple_panda.xml`）も同梱しています。外部の Panda モデルを持っていない場合は、この簡易モデルを `--model` に指定すると即座にデモを試せます。
+
 ## 前提条件
 
 - MuJoCo 2.x がインストールされ、`LD_LIBRARY_PATH` や `MUJOCO_PY_MJKEY_PATH` 等の環境変数が設定済みであること
-- Panda の MJCF (`panda.xml`) が手元にあること
+- Panda の MJCF (`panda.xml`) が手元にあること、または `examples/models/simple_panda.xml` を利用すること
 - Python 3.9 以降、および `requirements.txt` に記載の依存関係がインストールされていること
 
 ## デモの実行
@@ -14,6 +16,8 @@
 
 ```bash
 python examples/demo_mj.py --model /path/to/panda.xml
+# もしくは同梱の簡易モデルを使う場合
+python examples/demo_mj.py --model examples/models/simple_panda.xml
 ```
 
 ### オプション
