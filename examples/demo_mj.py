@@ -85,6 +85,11 @@ def main():
     ap.add_argument("--demo", choices=["wp", "sine"], default="wp", help="角度ファイルが無い時のデモ種別: wp(ウェイポイント) / sine(サイン波)")
     ap.add_argument("--segT", type=float, default=1.5, help="デモ=wp の各区間時間 [s]")
     ap.add_argument("--slow", type=float, default=1.0, help="実時間のスロー倍率（>1でゆっくり）")
+    ap.add_argument("--record", default=None, help="録画動画の保存パス (例: output.mp4)")
+    ap.add_argument("--recordFps", type=float, default=None, help="録画フレームレート [fps]（省略時: 再生fpsと同じ）")
+    ap.add_argument("--recordSize", type=int, nargs=2, metavar=("W", "H"), default=None,
+                    help="録画映像の幅[px]と高さ[px]（省略時: 1280x720）")
+
     args = ap.parse_args()
 
     if not os.path.isfile(args.model):
@@ -102,7 +107,15 @@ def main():
         if q.shape[1] != 7:
             q = q[:, :7]
 
-    play(args.model, traj=type("Traj", (), {"q": q}), slow=args.slow, loop=args.loop)
+    play(
+        args.model,
+        traj=type("Traj", (), {"q": q}),
+        slow=args.slow,
+        loop=args.loop,
+        record_path=args.record,
+        record_fps=args.recordFps,
+        record_size=tuple(args.recordSize) if args.recordSize else None,
+    )
 
 if __name__ == "__main__":
     main()
