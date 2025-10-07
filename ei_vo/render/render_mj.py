@@ -69,6 +69,15 @@ def _init_recording(m: mj.MjModel, dt: float, record_path: Union[str, pathlib.Pa
         if width <= 0 or height <= 0:
             raise ValueError("record_size must contain positive integers")
 
+    # ``mj.Renderer`` requires the offscreen framebuffer size (specified by
+    # ``offwidth``/``offheight`` in the MJCF) to be large enough for the
+    # requested render size.  Many Panda models ship with the default
+    # 640x480 buffer, which triggers a ``ValueError`` when users ask for HD
+    # recordings.  Adjust the framebuffer dimensions on the loaded model so
+    # that recording works without requiring manual MJCF edits.
+    m.vis.global_.offwidth = max(int(m.vis.global_.offwidth), int(width))
+    m.vis.global_.offheight = max(int(m.vis.global_.offheight), int(height))
+
     renderer = mj.Renderer(m, height=height, width=width)
     camera = mj.MjvCamera()
     mj.mjv_defaultCamera(camera)
