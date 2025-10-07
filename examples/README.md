@@ -31,7 +31,7 @@ python examples/demo_mj.py --model examples/models/simple_panda.xml
 | `--demo {wp,sine}` | 角度ファイル未指定時のデモ軌道を切り替えます |
 | `--segT FLOAT` | ウェイポイントデモの区間時間 [s] (デフォルト: 1.5) |
 | `--slow FLOAT` | 再生をスロー再生します (`>1` でゆっくり) |
-| `--record PATH` | 指定すると録画動画を保存します (例: `output.mp4`) |
+| `--record [PATH]` | 指定すると録画動画を保存します (例: `output.mp4`)。パスを省略した場合は `recordings/` 以下に自動保存 |
 | `--recordFps FLOAT` | 録画動画のフレームレートを明示的に指定します |
 | `--recordSize W H` | 録画動画のサイズ (幅, 高さ) をピクセル単位で指定します |
 
@@ -42,12 +42,15 @@ python examples/demo_mj.py --model examples/models/simple_panda.xml
 ```bash
 python examples/demo_mj.py \
     --model /path/to/panda.xml \
-    --record demo.mp4 \
+    --record recordings/demo.mp4 \
     --recordFps 60 \
     --recordSize 1920 1080
 ```
 
-録画時も通常のビューワ表示は保持され、終了時に動画ファイルが保存されます。
+`--record` にファイル名を付けずに指定した場合は、実行ディレクトリ直下の `recordings/demo_<日時>.mp4` に保存されます。録画時も通常のビューワ表示は保持され、終了時に動画ファイルが保存されます。
+
+> **Note**
+> `Recording was requested but the installed ei.play() does not accept a 'record_path' argument.` という警告が表示された場合は、利用している `ei` パッケージが古く、録画 API が未対応です。リポジトリのルートで `pip install -e .` を実行するか、最新版に更新してください。
 
 ## 軌道ファイルの準備
 

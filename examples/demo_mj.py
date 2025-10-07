@@ -85,6 +85,38 @@ def build_sine_demo(T_sec: float, hz: float) -> np.ndarray:
 # ---------------------------
 # メイン
 # ---------------------------
+def _resolve_record_destination(record_arg):
+    """Resolve the desired recording path.
+
+    Returns a tuple of ``(path_or_none, auto_dir)`` where ``auto_dir`` is the
+    directory that was auto-created when the caller did not supply an explicit
+    filename. ``auto_dir`` is ``None`` when the caller provided a concrete
+    destination.
+    """
+
+    if record_arg is None:
+        return None, None
+
+    record_value = os.fspath(record_arg)
+    record_value = record_value.strip()
+
+    if record_value == "":
+        base_dir = pathlib.Path.cwd() / "recordings"
+    else:
+        candidate = pathlib.Path(record_value)
+        if record_value.endswith(os.sep):
+            base_dir = candidate
+        elif candidate.exists() and candidate.is_dir():
+            base_dir = candidate
+        else:
+            return candidate.as_posix(), None
+
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    filename = f"demo_{timestamp}.mp4"
+    record_path = (base_dir / filename).as_posix()
+    return record_path, base_dir.as_posix()
+
+
 def _prepare_play_invocation(args, traj_obj):
     """Build argument lists for ``ei.play`` depending on its signature."""
 
@@ -157,7 +189,13 @@ def main():
     ap.add_argument("--demo", choices=["wp", "sine"], default="wp", help="角度ファイルが無い時のデモ種別: wp(ウェイポイント) / sine(サイン波)")
     ap.add_argument("--segT", type=float, default=1.5, help="デモ=wp の各区間時間 [s]")
     ap.add_argument("--slow", type=float, default=1.0, help="実時間のスロー倍率（>1でゆっくり）")
-    ap.add_argument("--record", default=None, help="録画動画の保存パス (例: output.mp4)")
+    ap.add_argument(
+        "--record",
+        nargs="?",
+        const="",
+        default=None,
+        help="録画動画の保存パス (例: output.mp4)。省略値またはディレクトリのみ指定時は recordings/ 以下に保存",
+    )
     ap.add_argument("--recordFps", type=float, default=None, help="録画フレームレート [fps]（省略時: 再生fpsと同じ）")
     ap.add_argument("--recordSize", type=int, nargs=2, metavar=("W", "H"), default=None,
                     help="録画映像の幅[px]と高さ[px]（省略時: 1280x720）")
@@ -166,6 +204,12 @@ def main():
 
     if not os.path.isfile(args.model):
         raise FileNotFoundError(args.model)
+
+    record_path, auto_dir = _resolve_record_destination(args.record)
+    args.record = record_path
+
+    if auto_dir is not None and record_path is not None:
+        print(f"[demo_mj] --record でファイル名が指定されなかったため {record_path} に保存します")
 
     # 軌道用意
     if args.angles is None:

@@ -174,3 +174,36 @@ def test_prepare_play_invocation_includes_record_kwargs_when_supported():
         assert call_kwargs["record_size"] == (800, 600)
     finally:
         demo_mj.play = original_play
+
+
+def test_resolve_record_destination_defaults_to_recordings(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(demo_mj.time, "strftime", lambda fmt: "20240102-030405")
+
+    path, auto_dir = demo_mj._resolve_record_destination("")
+
+    expected_dir = tmp_path / "recordings"
+    expected_file = expected_dir / "demo_20240102-030405.mp4"
+
+    assert path == expected_file.as_posix()
+    assert auto_dir == expected_dir.as_posix()
+
+
+def test_resolve_record_destination_accepts_directory(tmp_path, monkeypatch):
+    target_dir = tmp_path / "movies"
+    target_dir.mkdir()
+    monkeypatch.setattr(demo_mj.time, "strftime", lambda fmt: "20240102-030405")
+
+    path, auto_dir = demo_mj._resolve_record_destination(str(target_dir))
+
+    assert path == (target_dir / "demo_20240102-030405.mp4").as_posix()
+    assert auto_dir == target_dir.as_posix()
+
+
+def test_resolve_record_destination_preserves_filename(tmp_path):
+    given = tmp_path / "out"
+
+    path, auto_dir = demo_mj._resolve_record_destination(given)
+
+    assert path == given.as_posix()
+    assert auto_dir is None
