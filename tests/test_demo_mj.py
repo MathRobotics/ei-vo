@@ -5,6 +5,7 @@ import sys
 import types
 
 import numpy as np
+import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -84,3 +85,92 @@ def test_build_sine_demo_bounds_and_shape():
     upper = base + amp + 1e-6
     assert np.all(traj >= lower)
     assert np.all(traj <= upper)
+
+
+def test_prepare_play_invocation_skips_record_kwargs_when_not_supported():
+    original_play = demo_mj.play
+
+    def stub_play(model_path, traj, slow=1.0, hz=240.0, loop=False):
+        return None
+
+    demo_mj.play = stub_play
+    try:
+        args = types.SimpleNamespace(
+            model="model.xml",
+            slow=0.5,
+            hz=120.0,
+            loop=True,
+            record=None,
+            recordFps=None,
+            recordSize=None,
+        )
+        traj = types.SimpleNamespace(q=np.zeros((1, 7)))
+
+        call_args, call_kwargs = demo_mj._prepare_play_invocation(args, traj)
+
+        assert call_args == ["model.xml"]
+        assert call_kwargs["traj"] is traj
+        assert call_kwargs["slow"] == args.slow
+        assert call_kwargs["hz"] == args.hz
+        assert call_kwargs["loop"] is True
+        assert "record_path" not in call_kwargs
+    finally:
+        demo_mj.play = original_play
+
+
+def test_prepare_play_invocation_warns_when_record_not_supported():
+    original_play = demo_mj.play
+
+    def stub_play(model_path, traj, slow=1.0, hz=240.0, loop=False):
+        return None
+
+    demo_mj.play = stub_play
+    try:
+        args = types.SimpleNamespace(
+            model="model.xml",
+            slow=1.0,
+            hz=240.0,
+            loop=False,
+            record="out.mp4",
+            recordFps=30.0,
+            recordSize=(640, 480),
+        )
+        traj = types.SimpleNamespace(q=np.zeros((1, 7)))
+
+        with pytest.warns(RuntimeWarning) as record:
+            demo_mj._prepare_play_invocation(args, traj)
+
+        messages = {str(w.message) for w in record}
+        assert any("record_path" in msg for msg in messages)
+    finally:
+        demo_mj.play = original_play
+
+
+def test_prepare_play_invocation_includes_record_kwargs_when_supported():
+    original_play = demo_mj.play
+
+    def stub_play(model_path, traj, slow=1.0, hz=240.0, loop=False,
+                  record_path=None, record_fps=None, record_size=None):
+        return None
+
+    demo_mj.play = stub_play
+    try:
+        args = types.SimpleNamespace(
+            model="model.xml",
+            slow=1.5,
+            hz=120.0,
+            loop=False,
+            record="output",
+            recordFps=60.0,
+            recordSize=[800, 600],
+        )
+        traj = types.SimpleNamespace(q=np.zeros((1, 7)))
+
+        call_args, call_kwargs = demo_mj._prepare_play_invocation(args, traj)
+
+        assert call_args == ["model.xml"]
+        assert call_kwargs["record_path"] == "output"
+        assert call_kwargs["record_fps"] == 60.0
+        assert call_kwargs["record_size"] == (800, 600)
+    finally:
+        demo_mj.play = original_play

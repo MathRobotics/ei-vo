@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import os, sys, time, json, argparse, pathlib, math
+import argparse
+import inspect
+import json
+import math
+import os
+import pathlib
+import sys
+import time
+import types
+import warnings
+
 import numpy as np
 
 from ei import play
@@ -75,6 +85,68 @@ def build_sine_demo(T_sec: float, hz: float) -> np.ndarray:
 # ---------------------------
 # メイン
 # ---------------------------
+def _prepare_play_invocation(args, traj_obj):
+    """Build argument lists for ``ei.play`` depending on its signature."""
+
+    sig = inspect.signature(play)
+    params = sig.parameters
+
+    call_args = [args.model]
+    call_kwargs = {}
+
+    if "traj" in params:
+        call_kwargs["traj"] = traj_obj
+    else:
+        call_args.append(traj_obj)
+
+    if "slow" in params:
+        call_kwargs["slow"] = args.slow
+    if "hz" in params:
+        call_kwargs["hz"] = args.hz
+    if "loop" in params:
+        call_kwargs["loop"] = args.loop
+
+    record_requested = args.record is not None
+    record_supported = "record_path" in params
+    fps_supported = "record_fps" in params
+    size_supported = "record_size" in params
+
+    if record_requested and record_supported:
+        call_kwargs["record_path"] = args.record
+        if fps_supported and args.recordFps is not None:
+            call_kwargs["record_fps"] = args.recordFps
+        if size_supported and args.recordSize:
+            call_kwargs["record_size"] = tuple(args.recordSize)
+        if not fps_supported and args.recordFps is not None:
+            warnings.warn(
+                "recordFps specified but ei.play() does not accept a record_fps argument; ignoring.",
+                RuntimeWarning,
+            )
+        if not size_supported and args.recordSize:
+            warnings.warn(
+                "recordSize specified but ei.play() does not accept a record_size argument; ignoring.",
+                RuntimeWarning,
+            )
+    else:
+        if record_requested:
+            warnings.warn(
+                "Recording was requested but the installed ei.play() does not accept a 'record_path' argument.",
+                RuntimeWarning,
+            )
+        if args.recordFps is not None:
+            warnings.warn(
+                "recordFps specified without recording support; ignoring.",
+                RuntimeWarning,
+            )
+        if args.recordSize:
+            warnings.warn(
+                "recordSize specified without recording support; ignoring.",
+                RuntimeWarning,
+            )
+
+    return call_args, call_kwargs
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True, help="Panda の MJCF パス (panda.xml)")
@@ -107,15 +179,9 @@ def main():
         if q.shape[1] != 7:
             q = q[:, :7]
 
-    play(
-        args.model,
-        traj=type("Traj", (), {"q": q}),
-        slow=args.slow,
-        loop=args.loop,
-        record_path=args.record,
-        record_fps=args.recordFps,
-        record_size=tuple(args.recordSize) if args.recordSize else None,
-    )
+    traj_obj = types.SimpleNamespace(q=q)
+    call_args, call_kwargs = _prepare_play_invocation(args, traj_obj)
+    play(*call_args, **call_kwargs)
 
 if __name__ == "__main__":
     main()
