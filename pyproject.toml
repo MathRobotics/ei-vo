@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ei"
+name = "ei_vo"
 version = "0.0.1"
 description = "visualize library"
 
