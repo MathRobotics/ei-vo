@@ -13,7 +13,7 @@ import warnings
 
 import numpy as np
 
-from ei import play
+from ei_vo import play
 
 # ---------------------------
 # ユーティリティ
