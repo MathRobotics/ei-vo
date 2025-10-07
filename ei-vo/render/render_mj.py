@@ -97,6 +97,15 @@ def play(model_path: str, traj: Trajectory, slow=1.0, hz=240.0, camera=None, loo
             m, dt, record_path, record_fps, record_size
         )
 
+    def _apply_camera_settings(cam_obj, settings):
+        if settings is None:
+            return
+        for key, value in settings.items():
+            if key == "lookat":
+                cam_obj.lookat[:] = np.asarray(value, dtype=float)
+            else:
+                setattr(cam_obj, key, value)
+
     with contextlib.ExitStack() as stack:
         v = stack.enter_context(viewer.launch_passive(m, d))
         if record_writer is not None:
@@ -104,16 +113,29 @@ def play(model_path: str, traj: Trajectory, slow=1.0, hz=240.0, camera=None, loo
         if record_renderer is not None:
             stack.callback(record_renderer.close)
 
-        # カメラ
-        v.cam.distance = 1.9
-        v.cam.azimuth  = 110
-        v.cam.elevation= -20
+        if camera is None:
+            if hasattr(mj, "mjv_defaultFreeCamera"):
+                mj.mjv_defaultFreeCamera(m, v.cam)
+            else:
+                mj.mjv_defaultCamera(v.cam)
+                if hasattr(m, "stat"):
+                    try:
+                        v.cam.lookat[:] = getattr(m.stat, "center")
+                    except Exception:
+                        pass
+                    distance = getattr(m.stat, "extent", None)
+                    if distance:
+                        v.cam.distance = distance
+        else:
+            _apply_camera_settings(v.cam, camera)
 
         if record_camera is not None:
-            record_camera.distance = v.cam.distance
-            record_camera.azimuth = v.cam.azimuth
-            record_camera.elevation = v.cam.elevation
-            record_camera.lookat[:] = v.cam.lookat
+            _apply_camera_settings(record_camera, {
+                "distance": v.cam.distance,
+                "azimuth": v.cam.azimuth,
+                "elevation": v.cam.elevation,
+                "lookat": v.cam.lookat,
+            })
 
         def play_once(v):
             for i in range(q.shape[0]):
@@ -122,10 +144,12 @@ def play(model_path: str, traj: Trajectory, slow=1.0, hz=240.0, camera=None, loo
                 mj.mj_forward(m, d)  # 物理なしで姿勢だけ更新
                 if (record_renderer is not None and record_writer is not None
                         and record_camera is not None):
-                    record_camera.distance = v.cam.distance
-                    record_camera.azimuth = v.cam.azimuth
-                    record_camera.elevation = v.cam.elevation
-                    record_camera.lookat[:] = v.cam.lookat
+                    _apply_camera_settings(record_camera, {
+                        "distance": v.cam.distance,
+                        "azimuth": v.cam.azimuth,
+                        "elevation": v.cam.elevation,
+                        "lookat": v.cam.lookat,
+                    })
                     record_renderer.update_scene(d, camera=record_camera)
                     frame = record_renderer.render()
                     if frame.dtype != np.uint8:

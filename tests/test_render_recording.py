@@ -25,6 +25,7 @@ def render_mj(monkeypatch):
         jnt_type = np.array([0] * 7)
         jnt_qposadr = np.arange(7)
         jnt_range = np.tile(np.array([[-np.pi, np.pi]]), (7, 1))
+        stat = types.SimpleNamespace(center=np.array([0.1, -0.2, 0.3]), extent=2.5)
 
         @staticmethod
         def from_xml_path(path):
@@ -63,6 +64,12 @@ def render_mj(monkeypatch):
         cam.elevation = -20.0
         cam.lookat[:] = 0.0
 
+    def mjv_default_free_camera(model, cam):
+        cam.distance = model.stat.extent * 1.5
+        cam.azimuth = 90.0
+        cam.elevation = -45.0
+        cam.lookat[:] = model.stat.center
+
     dummy_mujoco.MjModel = DummyMjModel
     dummy_mujoco.MjData = DummyMjData
     dummy_mujoco.Renderer = DummyRenderer
@@ -71,14 +78,15 @@ def render_mj(monkeypatch):
     dummy_mujoco.mjtObj = types.SimpleNamespace(mjOBJ_JOINT=0)
     dummy_mujoco.mj_id2name = lambda m, obj, j_id: f"joint{j_id + 1}"
     dummy_mujoco.mjv_defaultCamera = mjv_default_camera
+    dummy_mujoco.mjv_defaultFreeCamera = mjv_default_free_camera
     dummy_mujoco.mj_forward = lambda m, d: None
 
     class DummyViewer:
         def __init__(self):
             self.cam = types.SimpleNamespace(
-                distance=1.9,
-                azimuth=110.0,
-                elevation=-20.0,
+                distance=0.0,
+                azimuth=0.0,
+                elevation=0.0,
                 lookat=np.zeros(3),
             )
             self._states = [True, False]
@@ -231,5 +239,5 @@ def test_play_records_frames(tmp_path, render_mj, monkeypatch):
     assert len(frames) == traj.q.shape[0]
     assert all(frame.dtype == np.uint8 for frame in frames)
     assert np.all(frames[0] == 127)  # 0.5 * 255 rounded down
-    assert captured_camera["camera"].distance == pytest.approx(1.9)
+    assert captured_camera["camera"].distance == pytest.approx(3.75)
     assert closed["renderer"] and closed["writer"]
