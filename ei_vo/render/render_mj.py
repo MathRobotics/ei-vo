@@ -5,8 +5,8 @@ import mujoco as mj, mujoco.viewer as viewer
 import numpy as np, time, pathlib
 import contextlib
 
-def detect_arm_joint_qaddr(m: mj.MjModel):
-    """finger/gripper を除外し、腕7ヒンジの qpos index と名前を抽出"""
+def detect_arm_joint_qaddr(m: mj.MjModel, expected_dof: Optional[int] = None):
+    """finger/gripper を除外し、腕ヒンジの qpos index と名前を抽出"""
     qaddrs, names = [], []
     for j_id in range(m.njnt):
         if m.jnt_type[j_id] != mj.mjtJoint.mjJNT_HINGE:
@@ -25,16 +25,30 @@ def detect_arm_joint_qaddr(m: mj.MjModel):
         return int(mnum.group(1)) if mnum else 999
 
     order = np.argsort([key(n) for n in names])
-    qaddrs = [qaddrs[i] for i in order][:7]
-    names  = [names[i]  for i in order][:7]
+    qaddrs = [qaddrs[i] for i in order]
+    names = [names[i] for i in order]
 
-    if len(qaddrs) != 7:
-        raise RuntimeError(f"7 arm joints not found. found={len(qaddrs)}, names={names}")
+    if expected_dof is None:
+        if len(qaddrs) == 0:
+            raise RuntimeError("No arm hinge joints found in model.")
+        return qaddrs
+
+    if len(qaddrs) < expected_dof:
+        raise RuntimeError(
+            f"Model provides {len(qaddrs)} arm joints, but {expected_dof} were requested."
+        )
+    qaddrs = qaddrs[:expected_dof]
     return qaddrs
 
 def clamp_to_limits(m: mj.MjModel, arm_qaddr: list[int], q: np.ndarray) -> np.ndarray:
     """モデルの関節範囲 m.jnt_range に基づいて角度をクリップ（必要な場合のみ）"""
     q = np.array(q, dtype=float)
+    if q.ndim != 2:
+        raise ValueError("Trajectory q must be a 2D array of shape (T, dof)")
+    if q.shape[1] != len(arm_qaddr):
+        raise ValueError(
+            f"Trajectory dof ({q.shape[1]}) does not match detected joints ({len(arm_qaddr)})"
+        )
     for i, adr in enumerate(arm_qaddr):
         # jnt_range は joint index 基準なので、adr から逆引きは不要（範囲が -inf の場合もある）
         # qpos index adr に対応する joint id を取得
@@ -75,8 +89,11 @@ def _init_recording(m: mj.MjModel, dt: float, record_path: Union[str, pathlib.Pa
     # 640x480 buffer, which triggers a ``ValueError`` when users ask for HD
     # recordings.  Adjust the framebuffer dimensions on the loaded model so
     # that recording works without requiring manual MJCF edits.
-    m.vis.global_.offwidth = max(int(m.vis.global_.offwidth), int(width))
-    m.vis.global_.offheight = max(int(m.vis.global_.offheight), int(height))
+    vis = getattr(m, "vis", None)
+    global_vis = getattr(vis, "global_", None) if vis is not None else None
+    if global_vis is not None and hasattr(global_vis, "offwidth") and hasattr(global_vis, "offheight"):
+        global_vis.offwidth = max(int(global_vis.offwidth), int(width))
+        global_vis.offheight = max(int(global_vis.offheight), int(height))
 
     renderer = mj.Renderer(m, height=height, width=width)
     camera = mj.MjvCamera()
@@ -92,11 +109,15 @@ def play(model_path: str, traj: Trajectory, slow=1.0, hz=240.0, camera=None, loo
          record_size: Optional[Tuple[int, int]] = None):
     m = mj.MjModel.from_xml_path(model_path)
     d = mj.MjData(m)
-    arm_qaddr = detect_arm_joint_qaddr(m)
+    q = np.array(traj.q, dtype=float)
+    if q.ndim != 2:
+        raise ValueError("traj.q must be a 2D array of shape (T, dof)")
+
+    arm_qaddr = detect_arm_joint_qaddr(m, expected_dof=q.shape[1])
 
     dt = (1.0 / max(hz, 1e-6)) * max(slow, 1e-6)
 
-    q = clamp_to_limits(m, arm_qaddr, traj.q)
+    q = clamp_to_limits(m, arm_qaddr, q)
 
     record_renderer = None
     record_camera = None

@@ -28,8 +28,8 @@ def test_load_angles_csv_in_degrees(tmp_path: pathlib.Path):
 
     loaded = demo_mj.load_angles(str(csv_path), deg=True)
 
-    assert loaded.shape == (2, 7)
-    expected = np.deg2rad(data[:, :7])
+    assert loaded.shape == (2, 8)
+    expected = np.deg2rad(data)
     np.testing.assert_allclose(loaded, expected)
 
 
@@ -44,8 +44,8 @@ def test_load_angles_json_truncates_columns(tmp_path: pathlib.Path):
 
     loaded = demo_mj.load_angles(str(json_path), deg=False)
 
-    assert loaded.shape == (2, 7)
-    np.testing.assert_allclose(loaded, arr[:, :7])
+    assert loaded.shape == (2, 8)
+    np.testing.assert_allclose(loaded, arr)
 
 
 def test_quintic_interpolation_hits_endpoints():
@@ -75,16 +75,38 @@ def test_build_demo_trajectory_concatenates_segments():
 
 
 def test_build_sine_demo_bounds_and_shape():
-    traj = demo_mj.build_sine_demo(T_sec=1.0, hz=10.0)
+    traj = demo_mj.build_sine_demo(7, T_sec=1.0, hz=10.0)
 
     assert traj.shape == (11, 7)
 
-    base = np.array([0.0, -0.6, 0.0, -1.8, 0.0, 1.4, 0.6])
-    amp = np.array([0.25, 0.15, 0.20, 0.25, 0.20, 0.20, 0.15])
+    base = np.linspace(-0.6, 0.6, 7)
+    amp = np.linspace(0.15, 0.30, 7)
     lower = base - amp - 1e-6
     upper = base + amp + 1e-6
     assert np.all(traj >= lower)
     assert np.all(traj <= upper)
+
+
+def test_demo_waypoints_matches_dof():
+    wp = demo_mj.demo_waypoints(5)
+
+    assert wp.shape == (5, 5)
+    np.testing.assert_allclose(wp[0], wp[-1])
+
+
+def test_three_dof_model_available_for_tests():
+    model_path = ROOT / "tests" / "models" / "three_dof_arm.xml"
+
+    mj_model = demo_mj.mj.MjModel.from_xml_path(str(model_path))
+    qaddrs = demo_mj.render_mj.detect_arm_joint_qaddr(mj_model)
+
+    assert len(qaddrs) == 3
+
+    wp = demo_mj.demo_waypoints(len(qaddrs))
+    traj = demo_mj.build_demo_trajectory(wp, seg_T=0.5, hz=10.0)
+
+    assert wp.shape[1] == 3
+    assert traj.shape[1] == 3
 
 
 def test_prepare_play_invocation_skips_record_kwargs_when_not_supported():

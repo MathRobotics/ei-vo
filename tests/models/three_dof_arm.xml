@@ -1,0 +1,41 @@
+<mujoco model="test_arm_3dof">
+  <compiler angle="radian" coordinate="local" inertiafromgeom="true"/>
+  <option gravity="0 0 -9.81" timestep="0.002" integrator="RK4"/>
+
+  <default>
+    <joint limited="true" damping="1.0" armature="0.01" stiffness="10"/>
+    <geom type="capsule" size="0.03 0.12" rgba="0.7 0.7 0.7 1" material="arm"/>
+  </default>
+
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient" width="256" height="256"
+             rgb1="0.7 0.8 0.95" rgb2="0.2 0.25 0.35"/>
+    <material name="arm" texture="sky" texrepeat="1 1" reflectance="0.05"
+              specular="0.3" shininess="0.6"/>
+  </asset>
+
+  <worldbody>
+    <light name="top" pos="0 0 2.0" dir="0 0 -1" diffuse="1 1 1" specular="0.3 0.3 0.3"/>
+    <geom name="floor" type="plane" size="2 2 0.1" rgba="0.9 0.9 0.9 1"/>
+
+    <body name="base" pos="0 0 0.05">
+      <geom type="box" size="0.06 0.06 0.05" rgba="0.2 0.2 0.2 1"/>
+
+      <body name="link1" pos="0 0 0.05">
+        <joint name="joint1" type="hinge" axis="0 0 1" range="-2.5 2.5"/>
+        <geom fromto="0 0 0 0 0 0.24" size="0.035"/>
+
+        <body name="link2" pos="0 0 0.24" euler="0 90 0">
+          <joint name="joint2" type="hinge" axis="0 0 1" range="-1.8 1.8"/>
+          <geom fromto="0 0 0 0 0 0.20" size="0.03"/>
+
+          <body name="link3" pos="0 0 0.20" euler="0 -90 0">
+            <joint name="joint3" type="hinge" axis="0 0 1" range="-2.4 2.4"/>
+            <geom fromto="0 0 0 0 0 0.18" size="0.028"/>
+            <site name="ee" pos="0 0 0.18" size="0.01" rgba="0 0.5 1 0"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
