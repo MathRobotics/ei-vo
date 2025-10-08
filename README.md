@@ -39,6 +39,7 @@ python examples/demo_mj.py \
 ## サンプルモデル
 
 - `tests/models/three_dof_arm.xml`: テストやデモに利用できる 3 自由度のアームモデルです。
+- `examples/trajectories/three_dof_arm_waypoints.csv`: 上記 3 自由度モデル用の参考軌道（ラジアン単位）。`--angles` に渡すことでそのまま再生できます。
 
 ## テスト
 

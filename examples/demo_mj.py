@@ -191,7 +191,7 @@ def _prepare_play_invocation(args, traj_obj):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True, help="Panda の MJCF パス (panda.xml)")
-    ap.add_argument("--angles", default=None, help="角度ファイル CSV/NPY/JSON, shape=(T,7)（省略可）")
+    ap.add_argument("--angles", default=None, help="角度ファイル CSV/NPY/JSON, shape=(T, DOF)（省略可）")
     ap.add_argument("--deg", action="store_true", help="角度ファイルが度[deg]の場合に指定")
     ap.add_argument("--hz", type=float, default=240.0, help="再生周波数 [Hz]（デモ/ファイル共通）")
     ap.add_argument("--loop", action="store_true", help="終端でループ再生")

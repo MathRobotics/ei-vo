@@ -109,6 +109,22 @@ def test_three_dof_model_available_for_tests():
     assert traj.shape[1] == 3
 
 
+def test_three_dof_sample_angles_match_model():
+    model_path = ROOT / "examples" / "models" / "three_dof_arm.xml"
+    traj_path = ROOT / "examples" / "trajectories" / "three_dof_arm_waypoints.csv"
+
+    assert traj_path.is_file()
+
+    mj_model = demo_mj.mj.MjModel.from_xml_path(str(model_path))
+    qaddrs = demo_mj.render_mj.detect_arm_joint_qaddr(mj_model)
+
+    angles = demo_mj.load_angles(str(traj_path), deg=False)
+
+    assert len(qaddrs) == 3
+    assert angles.shape[1] == len(qaddrs)
+    np.testing.assert_allclose(angles[0], angles[-1], atol=1e-6)
+
+
 def test_prepare_play_invocation_skips_record_kwargs_when_not_supported():
     original_play = demo_mj.play
 

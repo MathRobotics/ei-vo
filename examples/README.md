@@ -2,7 +2,7 @@
 
 `examples` ディレクトリには 7dof ロボットの MuJoCo モデルを使ったデモスクリプトが入っています。ここでは `demo_mj.py` の使い方と、軌道の準備・録画機能について説明します。
 
-リポジトリ内には学習用の簡易 MJCF（`examples/models/simple_model.xml`）や、テストで使用している 3 自由度アーム（`examples/models/three_dof_arm.xml`）も同梱しています。外部のモデルを持っていない場合は、これらのモデルを `--model` に指定すると即座にデモを試せます。
+リポジトリ内には学習用の簡易 MJCF（`examples/models/simple_model.xml`）や、テストで使用している 3 自由度アーム（`examples/models/three_dof_arm.xml`）も同梱しています。外部のモデルを持っていない場合は、これらのモデルを `--model` に指定すると即座にデモを試せます。3 自由度モデル向けには、そのまま読み込める参考軌道 `examples/trajectories/three_dof_arm_waypoints.csv` も用意しました。
 
 ## 前提条件
 
@@ -24,7 +24,7 @@ python examples/demo_mj.py --model examples/models/simple_model.xml
 
 | オプション | 説明 |
 | --- | --- |
-| `--angles PATH` | CSV / NPY / JSON 形式の関節角度ファイルを読み込みます (`shape=(T,7)`) |
+| `--angles PATH` | CSV / NPY / JSON 形式の関節角度ファイルを読み込みます (`shape=(T, DOF)`) |
 | `--deg` | 角度ファイルが度数法 [deg] のときに指定します (ラジアンに変換) |
 | `--hz FLOAT` | 再生周波数を Hz で指定します (デフォルト: 240.0) |
 | `--loop` | 再生をループさせます |
@@ -54,7 +54,7 @@ python examples/demo_mj.py \
 
 ## 軌道ファイルの準備
 
-`--angles` で読み込むファイルは 7 関節の角度列を表す 2 次元配列です。サンプルとして、CSV を NumPy で生成するコード例を以下に示します。
+`--angles` で読み込むファイルはモデルの自由度 (`DOF`) 列を持つ 2 次元配列です。サンプルとして、CSV を NumPy で生成するコード例を以下に示します。
 
 ```python
 import numpy as np
@@ -64,7 +64,7 @@ angles = np.linspace(0, 1, 240)[:, None] * np.ones((1, 7))
 np.savetxt("traj.csv", angles, delimiter=",")
 ```
 
-JSON や NPY 形式も同様に読み込めます。角度が度数法の場合は `--deg` を忘れずに指定してください。
+JSON や NPY 形式も同様に読み込めます。角度が度数法の場合は `--deg` を忘れずに指定してください。3 自由度モデルを手早く試したい場合は、同梱の `examples/trajectories/three_dof_arm_waypoints.csv` を `--angles` に渡せば、そのままウェイポイント由来の滑らかな軌道が再生されます。
 
 ## テスト
 
