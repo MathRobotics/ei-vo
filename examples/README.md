@@ -2,7 +2,7 @@
 
 `examples` ディレクトリには 7dof ロボットの MuJoCo モデルを使ったデモスクリプトが入っています。ここでは `demo_mj.py` の使い方と、軌道の準備・録画機能について説明します。
 
-リポジトリ内には学習用の簡易 MJCF（`examples/models/simple_model.xml`）も同梱しています。外部のモデルを持っていない場合は、この簡易モデルを `--model` に指定すると即座にデモを試せます。
+リポジトリ内には学習用の簡易 MJCF（`examples/models/simple_model.xml`）や、テストで使用している 3 自由度アーム（`examples/models/three_dof_arm.xml`）も同梱しています。外部のモデルを持っていない場合は、これらのモデルを `--model` に指定すると即座にデモを試せます。
 
 ## 前提条件
 
