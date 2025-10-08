@@ -94,8 +94,8 @@ def test_demo_waypoints_matches_dof():
     np.testing.assert_allclose(wp[0], wp[-1])
 
 
-def test_three_dof_model_available_for_tests():
-    model_path = ROOT / "tests" / "models" / "three_dof_arm.xml"
+def test_three_dof_example_model_matches_dof():
+    model_path = ROOT / "examples" / "models" / "three_dof_arm.xml"
 
     mj_model = demo_mj.mj.MjModel.from_xml_path(str(model_path))
     qaddrs = demo_mj.render_mj.detect_arm_joint_qaddr(mj_model)
@@ -105,8 +105,8 @@ def test_three_dof_model_available_for_tests():
     wp = demo_mj.demo_waypoints(len(qaddrs))
     traj = demo_mj.build_demo_trajectory(wp, seg_T=0.5, hz=10.0)
 
-    assert wp.shape[1] == 3
-    assert traj.shape[1] == 3
+    assert wp.shape[1] == len(qaddrs)
+    assert traj.shape[1] == len(qaddrs)
 
 
 def test_three_dof_sample_angles_match_model():

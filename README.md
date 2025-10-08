@@ -22,7 +22,7 @@ MuJoCo のランタイムが必要です。必要に応じて [公式ドキュ�
 
 ```bash
 python examples/demo_mj.py \
-  --model tests/models/three_dof_arm.xml \
+  --model examples/models/three_dof_arm.xml \
   --demo wp \
   --hz 240
 ```
@@ -31,14 +31,14 @@ python examples/demo_mj.py \
 
 ```bash
 python examples/demo_mj.py \
-  --model tests/models/three_dof_arm.xml \
+  --model examples/models/three_dof_arm.xml \
   --angles my_angles.csv \
   --deg  # CSV が度[deg]単位の場合
 ```
 
 ## サンプルモデル
 
-- `tests/models/three_dof_arm.xml`: テストやデモに利用できる 3 自由度のアームモデルです。
+- `examples/models/three_dof_arm.xml`: テストやデモに利用できる 3 自由度のアームモデルです。
 - `examples/trajectories/three_dof_arm_waypoints.csv`: 上記 3 自由度モデル用の参考軌道（ラジアン単位）。`--angles` に渡すことでそのまま再生できます。
 
 ## テスト
