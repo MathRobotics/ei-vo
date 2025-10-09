@@ -12,8 +12,10 @@ import types
 import warnings
 
 import numpy as np
+import mujoco as mj
 
 from ei_vo import play
+from ei_vo.render import render_mj
 
 # ---------------------------
 # ユーティリティ
@@ -32,9 +34,8 @@ def load_angles(path: str, deg: bool) -> np.ndarray:
         arr = np.array(data, dtype=float)
     else:
         raise ValueError(f"Unsupported file extension: {p.suffix}")
-    if arr.ndim != 2 or arr.shape[1] < 7:
-        raise ValueError(f"angles must be shape (T,7). Got {arr.shape}")
-    arr = arr[:, :7]
+    if arr.ndim != 2:
+        raise ValueError(f"angles must be a 2D array. Got {arr.shape}")
     if deg:
         arr = np.deg2rad(arr)
     return arr
@@ -49,15 +50,23 @@ def quintic(q0: np.ndarray, q1: np.ndarray, T: float, dt: float) -> np.ndarray:
 # ---------------------------
 # デモ軌道生成（角度ファイルが無いとき）
 # ---------------------------
-def demo_waypoints() -> np.ndarray:
-    """見栄えがよくて安全めな7関節姿勢の代表点を返す（行=姿勢、列=7）"""
-    return np.array([
-        [ 0.00, -0.60,  0.00, -1.80,  0.00,  1.40,  0.60],
-        [ 0.40, -0.20,  0.30, -1.30,  0.20,  1.00,  0.40],
-        [-0.30, -0.40, -0.20, -1.60, -0.10,  1.20,  0.70],
-        [ 0.20, -0.80,  0.10, -2.00,  0.10,  1.60,  0.90],
-        [ 0.00, -0.60,  0.00, -1.80,  0.00,  1.40,  0.60],  # 戻る
-    ], dtype=float)
+def demo_waypoints(dof: int) -> np.ndarray:
+    """安全めな代表姿勢を ``dof`` 関節分返す（行=姿勢、列=dof）"""
+
+    base = np.linspace(-0.6, 0.6, dof, dtype=float)
+    phase = np.linspace(0.0, math.pi, dof, dtype=float)
+
+    offsets = [
+        np.zeros(dof, dtype=float),
+        0.35 * np.sin(phase),
+        -0.25 * np.sin(phase + math.pi / 4.0),
+        0.30 * np.sin(phase + math.pi / 2.0),
+        np.zeros(dof, dtype=float),
+    ]
+
+    poses = [base + off for off in offsets]
+    poses[-1] = poses[0].copy()  # 戻る
+    return np.vstack(poses)
 
 def build_demo_trajectory(q_wp: np.ndarray, seg_T: float, hz: float) -> np.ndarray:
     """ウェイポイント列を各区間 quintic で接続して結合した時系列を作る"""
@@ -68,18 +77,18 @@ def build_demo_trajectory(q_wp: np.ndarray, seg_T: float, hz: float) -> np.ndarr
     chunks.append(q_wp[-1][None, :])
     return np.vstack(chunks)
 
-def build_sine_demo(T_sec: float, hz: float) -> np.ndarray:
-    """簡単なサイン波デモ（安全域の小振幅）。行=T*hz, 列=7"""
+def build_sine_demo(dof: int, T_sec: float, hz: float) -> np.ndarray:
+    """簡単なサイン波デモ（安全域の小振幅）。行=T*hz, 列=dof"""
     dt = 1.0 / max(hz, 1e-6)
     t = np.arange(0.0, T_sec + 1e-12, dt)
     T = t.shape[0]
-    q = np.zeros((T, 7), dtype=float)
-    base = np.array([0.0, -0.6, 0.0, -1.8, 0.0, 1.4, 0.6])
-    amp  = np.array([0.25, 0.15, 0.20, 0.25, 0.20, 0.20, 0.15])
-    freq = np.array([0.25, 0.30, 0.20, 0.35, 0.28, 0.22, 0.18])  # Hz
-    phase= np.linspace(0.0, math.pi, 7)
-    for i in range(7):
-        q[:, i] = base[i] + amp[i] * np.sin(2*math.pi*freq[i]*t + phase[i])
+    q = np.zeros((T, dof), dtype=float)
+    base = np.linspace(-0.6, 0.6, dof, dtype=float)
+    amp = np.linspace(0.15, 0.30, dof, dtype=float)
+    freq = np.linspace(0.20, 0.35, dof, dtype=float)  # Hz
+    phase = np.linspace(0.0, math.pi, dof, dtype=float)
+    for i in range(dof):
+        q[:, i] = base[i] + amp[i] * np.sin(2 * math.pi * freq[i] * t + phase[i])
     return q
 
 # ---------------------------
@@ -182,7 +191,7 @@ def _prepare_play_invocation(args, traj_obj):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True, help="Panda の MJCF パス (panda.xml)")
-    ap.add_argument("--angles", default=None, help="角度ファイル CSV/NPY/JSON, shape=(T,7)（省略可）")
+    ap.add_argument("--angles", default=None, help="角度ファイル CSV/NPY/JSON, shape=(T, DOF)（省略可）")
     ap.add_argument("--deg", action="store_true", help="角度ファイルが度[deg]の場合に指定")
     ap.add_argument("--hz", type=float, default=240.0, help="再生周波数 [Hz]（デモ/ファイル共通）")
     ap.add_argument("--loop", action="store_true", help="終端でループ再生")
@@ -205,6 +214,11 @@ def main():
     if not os.path.isfile(args.model):
         raise FileNotFoundError(args.model)
 
+    mj_model = mj.MjModel.from_xml_path(args.model)
+    model_dof = len(render_mj.detect_arm_joint_qaddr(mj_model))
+    if model_dof == 0:
+        raise RuntimeError("モデルから腕関節を特定できませんでした")
+
     record_path, auto_dir = _resolve_record_destination(args.record)
     args.record = record_path
 
@@ -214,14 +228,16 @@ def main():
     # 軌道用意
     if args.angles is None:
         if args.demo == "wp":
-            q_wp = demo_waypoints()
+            q_wp = demo_waypoints(model_dof)
             q = build_demo_trajectory(q_wp, seg_T=args.segT, hz=args.hz)
         else:
-            q = build_sine_demo(T_sec=10.0, hz=args.hz)
+            q = build_sine_demo(model_dof, T_sec=10.0, hz=args.hz)
     else:
         q = load_angles(args.angles, deg=args.deg)
-        if q.shape[1] != 7:
-            q = q[:, :7]
+        if q.shape[1] != model_dof:
+            raise ValueError(
+                f"角度ファイルの列数({q.shape[1]})がモデルの自由度({model_dof})と一致しません"
+            )
 
     traj_obj = types.SimpleNamespace(q=q)
     call_args, call_kwargs = _prepare_play_invocation(args, traj_obj)

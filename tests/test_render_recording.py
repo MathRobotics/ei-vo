@@ -110,7 +110,7 @@ def render_mj(monkeypatch):
     monkeypatch.setitem(sys.modules, "mujoco", dummy_mujoco)
     monkeypatch.setitem(sys.modules, "mujoco.viewer", viewer_module)
 
-    package_root = root / "ei-vo"
+    package_root = root / "ei_vo"
 
     ei_pkg = types.ModuleType("ei")
     ei_pkg.__path__ = [str(package_root)]
