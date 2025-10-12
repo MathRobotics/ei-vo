@@ -20,20 +20,15 @@ python examples/demo_mj.py --model /path/to/model.xml
 python examples/demo_mj.py --model examples/models/simple_model.xml
 ```
 
-### オプション
+## モデルのインタラクティブ検査
 
-| オプション | 説明 |
-| --- | --- |
-| `--angles PATH` | CSV / NPY / JSON 形式の関節角度ファイルを読み込みます (`shape=(T, DOF)`) |
-| `--deg` | 角度ファイルが度数法 [deg] のときに指定します (ラジアンに変換) |
-| `--hz FLOAT` | 再生周波数を Hz で指定します (デフォルト: 240.0) |
-| `--loop` | 再生をループさせます |
-| `--demo {wp,sine}` | 角度ファイル未指定時のデモ軌道を切り替えます |
-| `--segT FLOAT` | ウェイポイントデモの区間時間 [s] (デフォルト: 1.5) |
-| `--slow FLOAT` | 再生をスロー再生します (`>1` でゆっくり) |
-| `--record [PATH]` | 指定すると録画動画を保存します (例: `output.mp4`)。パスを省略した場合は `recordings/` 以下に自動保存 |
-| `--recordFps FLOAT` | 録画動画のフレームレートを明示的に指定します |
-| `--recordSize W H` | 録画動画のサイズ (幅, 高さ) をピクセル単位で指定します |
+軌道を用意せずにモデルの姿勢を確認したい場合は、`inspect_pose.py` で MuJoCo 標準 GUI を立ち上げてください。ビューア内のジョイントパネルやマウス操作を使って、モデルの角度を調整できます。
+
+```bash
+python examples/inspect_pose.py --model examples/models/simple_model.xml
+```
+
+`--pose-file` に単一の姿勢ベクトル（JSON / NPY / CSV）を渡すと、開始時の関節角度として読み込めます。また `--pose` で DOF 個の値を直接指定することも可能です。細かな操作方法は MuJoCo ビューア内で `F1` を押すと表示されます。
 
 ## 録画付きの実行
 
