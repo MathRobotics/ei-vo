@@ -20,6 +20,16 @@ python examples/demo_mj.py --model /path/to/model.xml
 python examples/demo_mj.py --model examples/models/simple_model.xml
 ```
 
+## モデルのインタラクティブ検査
+
+軌道を用意せずにモデルの姿勢を確認したい場合は、`inspect_pose.py` を利用すると便利です。ビューアを開いたら、左右キーで関節を選択し、上下キーで角度を増減できます。
+
+```bash
+python examples/inspect_pose.py --model examples/models/simple_model.xml
+```
+
+主なキーバインドは画面左上に表示されます。`--step` で角度変更の刻み幅（度）、`--pose` で初期関節角度（ラジアン）を指定できます。`--no-clamp` を付けると MJCF に設定された関節範囲を無視して調整可能です。
+
 ### オプション
 
 | オプション | 説明 |
