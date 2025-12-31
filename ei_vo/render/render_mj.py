@@ -6,7 +6,7 @@ import numpy as np, time, pathlib
 import contextlib
 
 def detect_arm_joint_qaddr(m: mj.MjModel, expected_dof: Optional[int] = None):
-    """finger/gripper を除外し、腕ヒンジの qpos index と名前を抽出"""
+    """Collect qpos indices and names for arm hinge joints, skipping fingers/grippers."""
     qaddrs, names = [], []
     for j_id in range(m.njnt):
         if m.jnt_type[j_id] != mj.mjtJoint.mjJNT_HINGE:
@@ -18,7 +18,7 @@ def detect_arm_joint_qaddr(m: mj.MjModel, expected_dof: Optional[int] = None):
         qaddrs.append(int(m.jnt_qposadr[j_id]))
         names.append(nm)
 
-    # 名前末尾の番号や "jointX" を拾って 1..7 を優先ソート
+    # Prefer sorting by trailing numbers such as "joint5" so links stay in order.
     def key(nm: str):
         import re
         mnum = re.search(r"(\d+)$", nm) or re.search(r"joint[_-]?(\d+)", nm)
@@ -41,7 +41,7 @@ def detect_arm_joint_qaddr(m: mj.MjModel, expected_dof: Optional[int] = None):
     return qaddrs
 
 def clamp_to_limits(m: mj.MjModel, arm_qaddr: list[int], q: np.ndarray) -> np.ndarray:
-    """モデルの関節範囲 m.jnt_range に基づいて角度をクリップ（必要な場合のみ）"""
+    """Clip the trajectory to ``m.jnt_range`` when joint limits are finite."""
     q = np.array(q, dtype=float)
     if q.ndim != 2:
         raise ValueError("Trajectory q must be a 2D array of shape (T, dof)")
@@ -50,14 +50,14 @@ def clamp_to_limits(m: mj.MjModel, arm_qaddr: list[int], q: np.ndarray) -> np.nd
             f"Trajectory dof ({q.shape[1]}) does not match detected joints ({len(arm_qaddr)})"
         )
     for i, adr in enumerate(arm_qaddr):
-        # jnt_range は joint index 基準なので、adr から逆引きは不要（範囲が -inf の場合もある）
-        # qpos index adr に対応する joint id を取得
+        # ``jnt_range`` is indexed by joint id, not by qpos adr; look up the
+        # matching joint for each qpos index. Ranges can be infinite.
         j_id = np.where(m.jnt_qposadr == adr)[0]
         if len(j_id) == 0:
             continue
         j = int(j_id[0])
         low, high = m.jnt_range[j]
-        if low < high:  # 有効範囲が設定されている場合のみ
+        if low < high:  # Only clamp when finite bounds exist
             q[:, i] = np.clip(q[:, i], low, high)
     return q
 
@@ -171,7 +171,7 @@ def play(model_path: str, traj: Trajectory, slow=1.0, hz=240.0, camera=None, loo
             for i in range(q.shape[0]):
                 for adr, qi in zip(arm_qaddr, q[i]):
                     d.qpos[adr] = float(qi)
-                mj.mj_forward(m, d)  # 物理なしで姿勢だけ更新
+                mj.mj_forward(m, d)  # Update pose without running dynamics
                 if (record_renderer is not None and record_writer is not None
                         and record_camera is not None):
                     _apply_camera_settings(record_camera, {
@@ -193,7 +193,7 @@ def play(model_path: str, traj: Trajectory, slow=1.0, hz=240.0, camera=None, loo
             if not loop:
                 break
 
-        # 終了までウィンドウを残す（任意）
+        # Keep the viewer window open until the user closes it (optional).
         while v.is_running():
             v.sync()
             time.sleep(0.01)
