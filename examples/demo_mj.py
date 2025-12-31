@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 import argparse
 import inspect
-import json
 import math
 import os
 import pathlib
@@ -15,37 +14,8 @@ import numpy as np
 import mujoco as mj
 
 from ei_vo import play
+from ei_vo.core import load_angles, quintic
 from ei_vo.render import render_mj
-
-# ---------------------------
-# Utilities
-# ---------------------------
-def load_angles(path: str, deg: bool) -> np.ndarray:
-    p = pathlib.Path(path)
-    if not p.exists():
-        raise FileNotFoundError(path)
-    if p.suffix.lower() == ".csv":
-        arr = np.loadtxt(p, delimiter=",", dtype=float)
-    elif p.suffix.lower() == ".npy":
-        arr = np.load(p)
-    elif p.suffix.lower() == ".json":
-        with open(p, "r") as f:
-            data = json.load(f)
-        arr = np.array(data, dtype=float)
-    else:
-        raise ValueError(f"Unsupported file extension: {p.suffix}")
-    if arr.ndim != 2:
-        raise ValueError(f"angles must be a 2D array. Got {arr.shape}")
-    if deg:
-        arr = np.deg2rad(arr)
-    return arr
-
-def quintic(q0: np.ndarray, q1: np.ndarray, T: float, dt: float) -> np.ndarray:
-    """Scalar quintic polynomial with zero velocity/acceleration at both ends."""
-    t = np.arange(0.0, T + 1e-12, dt)
-    s = t / max(T, 1e-9)
-    a = 10*s**3 - 15*s**4 + 6*s**5
-    return q0[None, :] + (q1 - q0)[None, :] * a[:, None]
 
 # ---------------------------
 # Demo trajectory generation (when no angle file is provided)

@@ -15,6 +15,7 @@ dummy_ei = types.ModuleType("ei")
 dummy_ei.play = lambda *args, **kwargs: None
 sys.modules.setdefault("ei", dummy_ei)
 
+from ei_vo.core import load_angles, quintic
 from examples import demo_mj
 
 
@@ -26,7 +27,7 @@ def test_load_angles_csv_in_degrees(tmp_path: pathlib.Path):
     csv_path = tmp_path / "angles.csv"
     np.savetxt(csv_path, data, delimiter=",", fmt="%.6f")
 
-    loaded = demo_mj.load_angles(str(csv_path), deg=True)
+    loaded = load_angles(str(csv_path), deg=True)
 
     assert loaded.shape == (2, 8)
     expected = np.deg2rad(data)
@@ -42,7 +43,7 @@ def test_load_angles_json_truncates_columns(tmp_path: pathlib.Path):
     with json_path.open("w", encoding="utf-8") as f:
         json.dump(arr.tolist(), f)
 
-    loaded = demo_mj.load_angles(str(json_path), deg=False)
+    loaded = load_angles(str(json_path), deg=False)
 
     assert loaded.shape == (2, 8)
     np.testing.assert_allclose(loaded, arr)
@@ -118,11 +119,19 @@ def test_three_dof_sample_angles_match_model():
     mj_model = demo_mj.mj.MjModel.from_xml_path(str(model_path))
     qaddrs = demo_mj.render_mj.detect_arm_joint_qaddr(mj_model)
 
-    angles = demo_mj.load_angles(str(traj_path), deg=False)
-
+    angles = load_angles(str(traj_path), deg=False)
+    
     assert len(qaddrs) == 3
     assert angles.shape[1] == len(qaddrs)
     np.testing.assert_allclose(angles[0], angles[-1], atol=1e-6)
+
+
+def test_demo_mj_reuses_library_loader():
+    assert demo_mj.load_angles is load_angles
+
+
+def test_demo_mj_reuses_library_quintic():
+    assert demo_mj.quintic is quintic
 
 
 def test_prepare_play_invocation_skips_record_kwargs_when_not_supported():
