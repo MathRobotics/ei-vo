@@ -1,43 +1,51 @@
 # Examples
 
-`examples` ディレクトリには 7dof ロボットの MuJoCo モデルを使ったデモスクリプトが入っています。ここでは `demo_mj.py` の使い方と、軌道の準備・録画機能について説明します。
+This directory contains demo scripts built on MuJoCo models for 7-DOF robots.
+It explains how to use `demo_mj.py`, prepare trajectories, and record videos.
 
-リポジトリ内には学習用の簡易 MJCF（`examples/models/simple_model.xml`）や、テストで使用している 3 自由度アーム（`examples/models/three_dof_arm.xml`）も同梱しています。外部のモデルを持っていない場合は、これらのモデルを `--model` に指定すると即座にデモを試せます。3 自由度モデル向けには、そのまま読み込める参考軌道 `examples/trajectories/three_dof_arm_waypoints.csv` も用意しました。
+Training-friendly MJCFs are included, such as `examples/models/simple_model.xml`
+and the 3-DOF arm used in tests (`examples/models/three_dof_arm.xml`). If you
+do not have your own model, point `--model` to one of these to try the demo
+immediately. A ready-to-use reference trajectory is also provided for the
+3-DOF model (`examples/trajectories/three_dof_arm_waypoints.csv`).
 
-## 前提条件
+## Prerequisites
 
-- MuJoCo 2.x がインストールされ、`LD_LIBRARY_PATH` や `MUJOCO_PY_MJKEY_PATH` 等の環境変数が設定済みであること
-- MJCF (`model.xml`) が手元にあること、または `examples/models/simple_model.xml` を利用すること
-- Python 3.9 以降、および `requirements.txt` に記載の依存関係がインストールされていること
+- MuJoCo 2.x installed, with environment variables like `LD_LIBRARY_PATH` and
+  `MUJOCO_PY_MJKEY_PATH` set
+- An MJCF (`model.xml`) on hand, or use `examples/models/simple_model.xml`
+- Python 3.9+ and the dependencies listed in `requirements.txt`
 
-## デモの実行
+## Running the demo
 
-角度ファイルを指定しない場合、スクリプトは内蔵のデモ軌道を生成して再生します。以下はウェイポイントデモを実時間で再生する例です。
+When no angle file is supplied, the script generates and plays a built-in demo
+trajectory. The following runs the waypoint demo in real time:
 
 ```bash
 python examples/demo_mj.py --model /path/to/model.xml
-# もしくは同梱の簡易モデルを使う場合
+# Or with the bundled simple model
 python examples/demo_mj.py --model examples/models/simple_model.xml
 ```
 
-### オプション
+### Options
 
-| オプション | 説明 |
+| Option | Description |
 | --- | --- |
-| `--angles PATH` | CSV / NPY / JSON 形式の関節角度ファイルを読み込みます (`shape=(T, DOF)`) |
-| `--deg` | 角度ファイルが度数法 [deg] のときに指定します (ラジアンに変換) |
-| `--hz FLOAT` | 再生周波数を Hz で指定します (デフォルト: 240.0) |
-| `--loop` | 再生をループさせます |
-| `--demo {wp,sine}` | 角度ファイル未指定時のデモ軌道を切り替えます |
-| `--segT FLOAT` | ウェイポイントデモの区間時間 [s] (デフォルト: 1.5) |
-| `--slow FLOAT` | 再生をスロー再生します (`>1` でゆっくり) |
-| `--record [PATH]` | 指定すると録画動画を保存します (例: `output.mp4`)。パスを省略した場合は `recordings/` 以下に自動保存 |
-| `--recordFps FLOAT` | 録画動画のフレームレートを明示的に指定します |
-| `--recordSize W H` | 録画動画のサイズ (幅, 高さ) をピクセル単位で指定します |
+| `--angles PATH` | Load a joint angle file in CSV / NPY / JSON (`shape=(T, DOF)`) |
+| `--deg` | Use when the angle file is in degrees (converted to radians) |
+| `--hz FLOAT` | Playback frequency in Hz (default: 240.0) |
+| `--loop` | Loop playback |
+| `--demo {wp,sine}` | Switch demo trajectory when no angle file is supplied |
+| `--segT FLOAT` | Segment duration [s] for the waypoint demo (default: 1.5) |
+| `--slow FLOAT` | Slow-motion playback (`>1` plays slower) |
+| `--record [PATH]` | Save a recording (e.g., `output.mp4`). When the filename is omitted, saves under `recordings/` |
+| `--recordFps FLOAT` | Override the recording frame rate |
+| `--recordSize W H` | Recording size in pixels (width, height) |
 
-## 録画付きの実行
+## Recording playback
 
-録画したい場合は `--record` を指定してください。フレームレートや解像度を変更する場合は `--recordFps` と `--recordSize` を併用します。
+Use `--record` to enable recording. Combine with `--recordFps` and
+`--recordSize` to control the frame rate and resolution:
 
 ```bash
 python examples/demo_mj.py \
@@ -47,14 +55,19 @@ python examples/demo_mj.py \
     --recordSize 1920 1080
 ```
 
-`--record` にファイル名を付けずに指定した場合は、実行ディレクトリ直下の `recordings/demo_<日時>.mp4` に保存されます。録画時も通常のビューワ表示は保持され、終了時に動画ファイルが保存されます。
+If you pass `--record` without a filename, the video is saved to
+`recordings/demo_<timestamp>.mp4` in the current directory. The viewer remains
+visible during recording and the file is written when playback ends.
 
 > **Note**
-> `Recording was requested but the installed ei.play() does not accept a 'record_path' argument.` という警告が表示された場合は、利用している `ei` パッケージが古く、録画 API が未対応です。リポジトリのルートで `pip install -e .` を実行するか、最新版に更新してください。
+> If you see `Recording was requested but the installed ei.play() does not accept a 'record_path' argument.`, the `ei` package
+> you are using is too old and lacks recording support. Run `pip install -e .`
+> in the repository root or upgrade to the latest version.
 
-## 軌道ファイルの準備
+## Preparing trajectory files
 
-`--angles` で読み込むファイルはモデルの自由度 (`DOF`) 列を持つ 2 次元配列です。サンプルとして、CSV を NumPy で生成するコード例を以下に示します。
+Files loaded via `--angles` are 2D arrays with columns equal to the model DOF.
+Example for generating a CSV with NumPy:
 
 ```python
 import numpy as np
@@ -64,14 +77,18 @@ angles = np.linspace(0, 1, 240)[:, None] * np.ones((1, 7))
 np.savetxt("traj.csv", angles, delimiter=",")
 ```
 
-JSON や NPY 形式も同様に読み込めます。角度が度数法の場合は `--deg` を忘れずに指定してください。3 自由度モデルを手早く試したい場合は、同梱の `examples/trajectories/three_dof_arm_waypoints.csv` を `--angles` に渡せば、そのままウェイポイント由来の滑らかな軌道が再生されます。
+JSON and NPY formats are handled similarly. If your angles are in degrees, pass
+`--deg`. For a quick 3-DOF trial, feed
+`examples/trajectories/three_dof_arm_waypoints.csv` to `--angles` to replay the
+smooth waypoint-based trajectory.
 
-## テスト
+## Tests
 
-`tests/` にはデモスクリプトの読み込みや録画処理を検証する Pytest ベースのテストが含まれています。以下で実行できます。
+`tests/` contains pytest-based checks for loading and recording behavior:
 
 ```bash
 pytest
 ```
 
-MuJoCo のネイティブライブラリを必要としないようスタブが用意されているため、ローカル環境でもそのままテスト可能です。
+Stubs are provided so MuJoCo's native libraries are not required to run the
+tests locally.

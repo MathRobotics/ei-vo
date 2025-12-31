@@ -1,24 +1,31 @@
 # ei-vo
 
-`ei-vo` は MuJoCo ベースのビジュアライザとテレオペレーションのデモを含むリポジトリです。`examples/demo_mj.py` を利用すると、任意自由度のロボットモデルに合わせてデモ軌道を生成・再生できます。
+`ei-vo` is a collection of MuJoCo-based visualization and teleoperation demos.
+Using `examples/demo_mj.py` you can generate and replay demonstration
+trajectories tailored to any robot model.
 
-## セットアップ
+## Setup
 
 ```bash
 pip install -e .
 ```
 
-MuJoCo のランタイムが必要です。必要に応じて [公式ドキュメント](https://mujoco.readthedocs.io/) を参照し、`MUJOCO_PY_MJKEY_PATH` などの環境変数を設定してください。
+You need the MuJoCo runtime available on your system. Refer to the
+[official documentation](https://mujoco.readthedocs.io/) for installation
+instructions and environment variables such as `MUJOCO_PY_MJKEY_PATH`.
 
-## MuJoCo デモ (`examples/demo_mj.py`)
+## MuJoCo demo (`examples/demo_mj.py`)
 
-- `--model` で MJCF ファイルを指定します。
-- `--angles` に CSV/NPY/JSON 形式の関節軌道 (shape=(T, DOF)) を指定すると、そのまま再生します。
-- 軌道ファイルを指定しない場合は、モデルの関節数を自動検出して安全域内のデモ軌道（ウェイポイントまたはサイン波）を生成します。
-- `--record` を指定すると、再生内容を MP4 で保存できます（ファイルパスまたはディレクトリを指定可能）。
-- `--recordFps` / `--recordSize` を使うと、録画のフレームレートや解像度を調整できます。
+- Specify an MJCF file with `--model`.
+- Provide a CSV/NPY/JSON trajectory file via `--angles` (shape=(T, DOF)) to
+  replay it directly.
+- If no trajectory is supplied, the script auto-detects the model DOF and
+  generates a safe demo trajectory (waypoints or sine wave).
+- Use `--record` to save playback as MP4 (accepts a file path or directory).
+- `--recordFps` / `--recordSize` control the recording frame rate and
+  resolution.
 
-例: 3 自由度モデルをウェイポイントデモで再生する
+Example: play a waypoint demo for a 3-DOF model:
 
 ```bash
 python examples/demo_mj.py \
@@ -27,26 +34,27 @@ python examples/demo_mj.py \
   --hz 240
 ```
 
-角度ファイル（CSV など）を使う場合:
+Using an angle file instead:
 
 ```bash
 python examples/demo_mj.py \
   --model examples/models/three_dof_arm.xml \
   --angles my_angles.csv \
-  --deg  # CSV が度[deg]単位の場合
+  --deg  # Use when the CSV is in degrees
 ```
 
-## サンプルモデル
+## Sample models
 
-- `examples/models/three_dof_arm.xml`: テストやデモに利用できる 3 自由度のアームモデルです。
-- `examples/trajectories/three_dof_arm_waypoints.csv`: 上記 3 自由度モデル用の参考軌道（ラジアン単位）。`--angles` に渡すことでそのまま再生できます。
+- `examples/models/three_dof_arm.xml`: 3-DOF arm for testing and demos.
+- `examples/trajectories/three_dof_arm_waypoints.csv`: reference trajectory
+  (radians) for the model above; pass it to `--angles` to replay immediately.
 
-## テスト
+## Tests
 
 ```bash
 pytest
 ```
 
-## ライセンス
+## License
 
-プロジェクトのライセンスは `pyproject.toml` を参照してください。
+See `pyproject.toml` for license details.

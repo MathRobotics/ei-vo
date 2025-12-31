@@ -18,7 +18,7 @@ from ei_vo import play
 from ei_vo.render import render_mj
 
 # ---------------------------
-# ユーティリティ
+# Utilities
 # ---------------------------
 def load_angles(path: str, deg: bool) -> np.ndarray:
     p = pathlib.Path(path)
@@ -41,17 +41,17 @@ def load_angles(path: str, deg: bool) -> np.ndarray:
     return arr
 
 def quintic(q0: np.ndarray, q1: np.ndarray, T: float, dt: float) -> np.ndarray:
-    """位置・速度・加速度=0で接続する5次多項式（スカラー係数）"""
+    """Scalar quintic polynomial with zero velocity/acceleration at both ends."""
     t = np.arange(0.0, T + 1e-12, dt)
     s = t / max(T, 1e-9)
     a = 10*s**3 - 15*s**4 + 6*s**5
     return q0[None, :] + (q1 - q0)[None, :] * a[:, None]
 
 # ---------------------------
-# デモ軌道生成（角度ファイルが無いとき）
+# Demo trajectory generation (when no angle file is provided)
 # ---------------------------
 def demo_waypoints(dof: int) -> np.ndarray:
-    """安全めな代表姿勢を ``dof`` 関節分返す（行=姿勢、列=dof）"""
+    """Return conservative example poses for ``dof`` joints (rows=poses, cols=dof)."""
 
     base = np.linspace(-0.6, 0.6, dof, dtype=float)
     phase = np.linspace(0.0, math.pi, dof, dtype=float)
@@ -65,20 +65,20 @@ def demo_waypoints(dof: int) -> np.ndarray:
     ]
 
     poses = [base + off for off in offsets]
-    poses[-1] = poses[0].copy()  # 戻る
+    poses[-1] = poses[0].copy()  # Return to the starting configuration
     return np.vstack(poses)
 
 def build_demo_trajectory(q_wp: np.ndarray, seg_T: float, hz: float) -> np.ndarray:
-    """ウェイポイント列を各区間 quintic で接続して結合した時系列を作る"""
+    """Connect waypoint pairs with quintic curves and concatenate the segments."""
     dt = 1.0 / max(hz, 1e-6)
     chunks = []
     for i in range(len(q_wp)-1):
-        chunks.append(quintic(q_wp[i], q_wp[i+1], seg_T, dt)[:-1])  # 重複フレームを避けて末尾除外
+        chunks.append(quintic(q_wp[i], q_wp[i+1], seg_T, dt)[:-1])  # Drop overlap at the boundary
     chunks.append(q_wp[-1][None, :])
     return np.vstack(chunks)
 
 def build_sine_demo(dof: int, T_sec: float, hz: float) -> np.ndarray:
-    """簡単なサイン波デモ（安全域の小振幅）。行=T*hz, 列=dof"""
+    """Simple sinusoidal demo within a conservative range (rows=T*hz, cols=dof)."""
     dt = 1.0 / max(hz, 1e-6)
     t = np.arange(0.0, T_sec + 1e-12, dt)
     T = t.shape[0]
@@ -92,7 +92,7 @@ def build_sine_demo(dof: int, T_sec: float, hz: float) -> np.ndarray:
     return q
 
 # ---------------------------
-# メイン
+# Main
 # ---------------------------
 def _resolve_record_destination(record_arg):
     """Resolve the desired recording path.
@@ -190,24 +190,24 @@ def _prepare_play_invocation(args, traj_obj):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", required=True, help="Panda の MJCF パス (panda.xml)")
-    ap.add_argument("--angles", default=None, help="角度ファイル CSV/NPY/JSON, shape=(T, DOF)（省略可）")
-    ap.add_argument("--deg", action="store_true", help="角度ファイルが度[deg]の場合に指定")
-    ap.add_argument("--hz", type=float, default=240.0, help="再生周波数 [Hz]（デモ/ファイル共通）")
-    ap.add_argument("--loop", action="store_true", help="終端でループ再生")
-    ap.add_argument("--demo", choices=["wp", "sine"], default="wp", help="角度ファイルが無い時のデモ種別: wp(ウェイポイント) / sine(サイン波)")
-    ap.add_argument("--segT", type=float, default=1.5, help="デモ=wp の各区間時間 [s]")
-    ap.add_argument("--slow", type=float, default=1.0, help="実時間のスロー倍率（>1でゆっくり）")
+    ap.add_argument("--model", required=True, help="Path to the Panda MJCF (panda.xml)")
+    ap.add_argument("--angles", default=None, help="Joint angle file CSV/NPY/JSON, shape=(T, DOF) (optional)")
+    ap.add_argument("--deg", action="store_true", help="Specify when the angle file is in degrees")
+    ap.add_argument("--hz", type=float, default=240.0, help="Playback frequency [Hz] (demo/file)")
+    ap.add_argument("--loop", action="store_true", help="Loop playback at the end")
+    ap.add_argument("--demo", choices=["wp", "sine"], default="wp", help="Demo type when no angle file: wp (waypoints) / sine")
+    ap.add_argument("--segT", type=float, default=1.5, help="Segment duration [s] for wp demo")
+    ap.add_argument("--slow", type=float, default=1.0, help="Slowdown multiplier (>1 plays slower)")
     ap.add_argument(
         "--record",
         nargs="?",
         const="",
         default=None,
-        help="録画動画の保存パス (例: output.mp4)。省略値またはディレクトリのみ指定時は recordings/ 以下に保存",
+        help="Path to save the recording (e.g., output.mp4). Defaults to recordings/ when omitted or directory-only",
     )
-    ap.add_argument("--recordFps", type=float, default=None, help="録画フレームレート [fps]（省略時: 再生fpsと同じ）")
+    ap.add_argument("--recordFps", type=float, default=None, help="Recording frame rate [fps] (default: playback fps)")
     ap.add_argument("--recordSize", type=int, nargs=2, metavar=("W", "H"), default=None,
-                    help="録画映像の幅[px]と高さ[px]（省略時: 1280x720）")
+                    help="Recording width[px] and height[px] (default: 1280x720)")
 
     args = ap.parse_args()
 
@@ -217,15 +217,15 @@ def main():
     mj_model = mj.MjModel.from_xml_path(args.model)
     model_dof = len(render_mj.detect_arm_joint_qaddr(mj_model))
     if model_dof == 0:
-        raise RuntimeError("モデルから腕関節を特定できませんでした")
+        raise RuntimeError("Failed to identify arm joints from the model")
 
     record_path, auto_dir = _resolve_record_destination(args.record)
     args.record = record_path
 
     if auto_dir is not None and record_path is not None:
-        print(f"[demo_mj] --record でファイル名が指定されなかったため {record_path} に保存します")
+        print(f"[demo_mj] --record was given without a filename; saving to {record_path}")
 
-    # 軌道用意
+    # Prepare trajectory
     if args.angles is None:
         if args.demo == "wp":
             q_wp = demo_waypoints(model_dof)
@@ -236,7 +236,7 @@ def main():
         q = load_angles(args.angles, deg=args.deg)
         if q.shape[1] != model_dof:
             raise ValueError(
-                f"角度ファイルの列数({q.shape[1]})がモデルの自由度({model_dof})と一致しません"
+                f"Number of angle columns ({q.shape[1]}) does not match model DOF ({model_dof})"
             )
 
     traj_obj = types.SimpleNamespace(q=q)
