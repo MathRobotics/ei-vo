@@ -4,9 +4,6 @@ import argparse
 import inspect
 import math
 import os
-import pathlib
-import sys
-import time
 import types
 import warnings
 
@@ -14,8 +11,11 @@ import numpy as np
 import mujoco as mj
 
 from ei_vo import play
-from ei_vo.core import load_angles, quintic
+from ei_vo.core import load_angles, quintic, resolve_record_destination
 from ei_vo.render import render_mj
+
+# Maintain the previous internal helper name while reusing the shared utility.
+_resolve_record_destination = resolve_record_destination
 
 # ---------------------------
 # Demo trajectory generation (when no angle file is provided)
@@ -64,38 +64,6 @@ def build_sine_demo(dof: int, T_sec: float, hz: float) -> np.ndarray:
 # ---------------------------
 # Main
 # ---------------------------
-def _resolve_record_destination(record_arg):
-    """Resolve the desired recording path.
-
-    Returns a tuple of ``(path_or_none, auto_dir)`` where ``auto_dir`` is the
-    directory that was auto-created when the caller did not supply an explicit
-    filename. ``auto_dir`` is ``None`` when the caller provided a concrete
-    destination.
-    """
-
-    if record_arg is None:
-        return None, None
-
-    record_value = os.fspath(record_arg)
-    record_value = record_value.strip()
-
-    if record_value == "":
-        base_dir = pathlib.Path.cwd() / "recordings"
-    else:
-        candidate = pathlib.Path(record_value)
-        if record_value.endswith(os.sep):
-            base_dir = candidate
-        elif candidate.exists() and candidate.is_dir():
-            base_dir = candidate
-        else:
-            return candidate.as_posix(), None
-
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
-    filename = f"demo_{timestamp}.mp4"
-    record_path = (base_dir / filename).as_posix()
-    return record_path, base_dir.as_posix()
-
-
 def _prepare_play_invocation(args, traj_obj):
     """Build argument lists for ``ei.play`` depending on its signature."""
 

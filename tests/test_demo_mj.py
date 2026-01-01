@@ -15,7 +15,8 @@ dummy_ei = types.ModuleType("ei")
 dummy_ei.play = lambda *args, **kwargs: None
 sys.modules.setdefault("ei", dummy_ei)
 
-from ei_vo.core import load_angles, quintic
+import ei_vo.core.recording as recording
+from ei_vo.core import load_angles, quintic, resolve_record_destination
 from examples import demo_mj
 
 
@@ -134,6 +135,10 @@ def test_demo_mj_reuses_library_quintic():
     assert demo_mj.quintic is quintic
 
 
+def test_demo_mj_reuses_library_record_resolver():
+    assert demo_mj._resolve_record_destination is resolve_record_destination
+
+
 def test_prepare_play_invocation_skips_record_kwargs_when_not_supported():
     original_play = demo_mj.play
 
@@ -225,7 +230,7 @@ def test_prepare_play_invocation_includes_record_kwargs_when_supported():
 
 def test_resolve_record_destination_defaults_to_recordings(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(demo_mj.time, "strftime", lambda fmt: "20240102-030405")
+    monkeypatch.setattr(recording.time, "strftime", lambda fmt: "20240102-030405")
 
     path, auto_dir = demo_mj._resolve_record_destination("")
 
@@ -239,7 +244,7 @@ def test_resolve_record_destination_defaults_to_recordings(tmp_path, monkeypatch
 def test_resolve_record_destination_accepts_directory(tmp_path, monkeypatch):
     target_dir = tmp_path / "movies"
     target_dir.mkdir()
-    monkeypatch.setattr(demo_mj.time, "strftime", lambda fmt: "20240102-030405")
+    monkeypatch.setattr(recording.time, "strftime", lambda fmt: "20240102-030405")
 
     path, auto_dir = demo_mj._resolve_record_destination(str(target_dir))
 
