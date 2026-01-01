@@ -11,8 +11,10 @@ import numpy as np
 import mujoco as mj
 
 from ei_vo import play
-from ei_vo.core import load_angles, quintic, resolve_record_destination
 from ei_vo.render import render_mj
+from ei_vo.core.angles import load_angles
+from ei_vo.core.interpolation import quintic
+from ei_vo.core.recording import resolve_record_destination
 
 # Maintain the previous internal helper name while reusing the shared utility.
 _resolve_record_destination = resolve_record_destination
