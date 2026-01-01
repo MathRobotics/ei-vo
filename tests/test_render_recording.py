@@ -15,7 +15,7 @@ def render_mj(monkeypatch):
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
 
-    for name in ["ei.render.render_mj", "ei.render", "ei"]:
+    for name in ["ei_vo.render.render_mj", "ei_vo.render", "ei_vo"]:
         sys.modules.pop(name, None)
 
     dummy_mujoco = types.ModuleType("mujoco")
@@ -112,29 +112,29 @@ def render_mj(monkeypatch):
 
     package_root = root / "ei_vo"
 
-    ei_pkg = types.ModuleType("ei")
+    ei_pkg = types.ModuleType("ei_vo")
     ei_pkg.__path__ = [str(package_root)]
-    core_pkg = types.ModuleType("ei.core")
+    core_pkg = types.ModuleType("ei_vo.core")
     core_pkg.__path__ = [str(package_root / "core")]
-    render_pkg = types.ModuleType("ei.render")
+    render_pkg = types.ModuleType("ei_vo.render")
     render_pkg.__path__ = [str(package_root / "render")]
 
-    monkeypatch.setitem(sys.modules, "ei", ei_pkg)
-    monkeypatch.setitem(sys.modules, "ei.core", core_pkg)
-    monkeypatch.setitem(sys.modules, "ei.render", render_pkg)
+    monkeypatch.setitem(sys.modules, "ei_vo", ei_pkg)
+    monkeypatch.setitem(sys.modules, "ei_vo.core", core_pkg)
+    monkeypatch.setitem(sys.modules, "ei_vo.render", render_pkg)
 
     core_spec = importlib.util.spec_from_file_location(
-        "ei.core.core", package_root / "core" / "core.py"
+        "ei_vo.core.core", package_root / "core" / "core.py"
     )
     core_module = importlib.util.module_from_spec(core_spec)
-    monkeypatch.setitem(sys.modules, "ei.core.core", core_module)
+    monkeypatch.setitem(sys.modules, "ei_vo.core.core", core_module)
     core_spec.loader.exec_module(core_module)
 
     render_spec = importlib.util.spec_from_file_location(
-        "ei.render.render_mj", package_root / "render" / "render_mj.py"
+        "ei_vo.render.render_mj", package_root / "render" / "render_mj.py"
     )
     module = importlib.util.module_from_spec(render_spec)
-    monkeypatch.setitem(sys.modules, "ei.render.render_mj", module)
+    monkeypatch.setitem(sys.modules, "ei_vo.render.render_mj", module)
     render_spec.loader.exec_module(module)
 
     ei_pkg.render = render_pkg

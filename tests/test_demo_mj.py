@@ -11,9 +11,70 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-dummy_ei = types.ModuleType("ei")
-dummy_ei.play = lambda *args, **kwargs: None
-sys.modules.setdefault("ei", dummy_ei)
+if "mujoco" not in sys.modules:
+    dummy_mujoco = types.ModuleType("mujoco")
+
+    class DummyMjModel:
+        def __init__(self):
+            self.njnt = 3
+            self.jnt_type = np.array([0] * 3)
+            self.jnt_qposadr = np.arange(3)
+            self.jnt_range = np.tile(np.array([[-np.pi, np.pi]]), (3, 1))
+            self.stat = types.SimpleNamespace(center=np.zeros(3), extent=2.5)
+
+        @staticmethod
+        def from_xml_path(path):
+            return DummyMjModel()
+
+    class DummyMjData:
+        def __init__(self, model):
+            self.qpos = np.zeros(model.njnt)
+
+    class DummyRenderer:
+        def __init__(self, model, height, width):
+            self.model = model
+            self.height = height
+            self.width = width
+
+        def update_scene(self, data, camera=None):
+            pass
+
+        def render(self):
+            return np.zeros((self.height, self.width, 3), dtype=np.uint8)
+
+        def close(self):
+            pass
+
+    class DummyCamera:
+        def __init__(self):
+            self.distance = 0.0
+            self.azimuth = 0.0
+            self.elevation = 0.0
+            self.lookat = np.zeros(3)
+
+    dummy_mujoco.MjModel = DummyMjModel
+    dummy_mujoco.MjData = DummyMjData
+    dummy_mujoco.Renderer = DummyRenderer
+    dummy_mujoco.MjvCamera = DummyCamera
+    dummy_mujoco.mjtJoint = types.SimpleNamespace(mjJNT_HINGE=0)
+    dummy_mujoco.mjtObj = types.SimpleNamespace(mjOBJ_JOINT=0)
+    dummy_mujoco.mj_id2name = lambda m, obj, j_id: f"joint{j_id + 1}"
+    dummy_mujoco.mjv_defaultCamera = lambda cam: None
+    dummy_mujoco.mjv_defaultFreeCamera = lambda model, cam: None
+    dummy_mujoco.mj_forward = lambda m, d: None
+
+    class DummyViewerContext:
+        def __enter__(self):
+            return types.SimpleNamespace(is_running=lambda: False, sync=lambda: None)
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    viewer_module = types.ModuleType("mujoco.viewer")
+    viewer_module.launch_passive = lambda model, data: DummyViewerContext()
+
+    sys.modules["mujoco"] = dummy_mujoco
+    sys.modules["mujoco.viewer"] = viewer_module
 
 import ei_vo.core.recording as recording
 from ei_vo.core import load_angles, quintic, resolve_record_destination
