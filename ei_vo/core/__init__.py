@@ -1,5 +1,5 @@
-from .angles import load_angles
 from .core import RobotModel, Trajectory
+from .angles import load_angles
 from .interpolation import quintic
 from .recording import resolve_record_destination
 
