@@ -1,5 +1,4 @@
 import importlib
-import importlib.util
 import math
 import pathlib
 import sys
@@ -9,153 +8,65 @@ import numpy as np
 import pytest
 
 
-@pytest.fixture
-def render_mj(monkeypatch):
-    root = pathlib.Path(__file__).resolve().parents[1]
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
+def _import_render_module():
+    sys.modules.pop("ei_vo.render.render_mj", None)
+    sys.modules.pop("ei_vo.render", None)
+    return importlib.import_module("ei_vo.render.render_mj")
 
-    for name in ["ei_vo.render.render_mj", "ei_vo.render", "ei_vo"]:
-        sys.modules.pop(name, None)
 
-    dummy_mujoco = types.ModuleType("mujoco")
+def test_detect_arm_joints_skips_gripper_and_sorts(install_dummy_mujoco):
+    install_dummy_mujoco(joint_names=["joint3", "gripper", "joint1", "finger", "joint2"])
+    render_mj = _import_render_module()
 
-    class DummyMjModel:
-        njnt = 7
-        jnt_type = np.array([0] * 7)
-        jnt_qposadr = np.arange(7)
-        jnt_range = np.tile(np.array([[-np.pi, np.pi]]), (7, 1))
-        stat = types.SimpleNamespace(center=np.array([0.1, -0.2, 0.3]), extent=2.5)
+    model = render_mj.mj.MjModel.from_xml_path("dummy.xml")
+    arm = render_mj.detect_arm_joints(model)
 
-        @staticmethod
-        def from_xml_path(path):
-            return DummyMjModel()
+    assert arm.joint_names == ("joint1", "joint2", "joint3")
+    assert arm.qpos_addresses == (2, 4, 0)
 
-    class DummyMjData:
-        def __init__(self, model):
-            self.qpos = np.zeros(7)
 
-    class DummyRenderer:
-        def __init__(self, model, height, width):
-            self.model = model
-            self.height = height
-            self.width = width
-            self.closed = False
+def test_clamp_to_limits_uses_model_ranges(install_dummy_mujoco):
+    install_dummy_mujoco(joint_names=["joint1", "joint2", "joint3"])
+    render_mj = _import_render_module()
 
-        def update_scene(self, data, camera=None):
-            pass
+    model = render_mj.mj.MjModel.from_xml_path("dummy.xml")
+    model.jnt_range = np.array([[-1.0, 1.0], [-0.5, 0.5], [-2.0, 2.0]])
 
-        def render(self):
-            return np.zeros((self.height, self.width, 3), dtype=np.uint8)
-
-        def close(self):
-            self.closed = True
-
-    class DummyCamera:
-        def __init__(self):
-            self.distance = 0.0
-            self.azimuth = 0.0
-            self.elevation = 0.0
-            self.lookat = np.zeros(3)
-
-    def mjv_default_camera(cam):
-        cam.distance = 1.9
-        cam.azimuth = 110.0
-        cam.elevation = -20.0
-        cam.lookat[:] = 0.0
-
-    def mjv_default_free_camera(model, cam):
-        cam.distance = model.stat.extent * 1.5
-        cam.azimuth = 90.0
-        cam.elevation = -45.0
-        cam.lookat[:] = model.stat.center
-
-    dummy_mujoco.MjModel = DummyMjModel
-    dummy_mujoco.MjData = DummyMjData
-    dummy_mujoco.Renderer = DummyRenderer
-    dummy_mujoco.MjvCamera = DummyCamera
-    dummy_mujoco.mjtJoint = types.SimpleNamespace(mjJNT_HINGE=0)
-    dummy_mujoco.mjtObj = types.SimpleNamespace(mjOBJ_JOINT=0)
-    dummy_mujoco.mj_id2name = lambda m, obj, j_id: f"joint{j_id + 1}"
-    dummy_mujoco.mjv_defaultCamera = mjv_default_camera
-    dummy_mujoco.mjv_defaultFreeCamera = mjv_default_free_camera
-    dummy_mujoco.mj_forward = lambda m, d: None
-
-    class DummyViewer:
-        def __init__(self):
-            self.cam = types.SimpleNamespace(
-                distance=0.0,
-                azimuth=0.0,
-                elevation=0.0,
-                lookat=np.zeros(3),
-            )
-            self._states = [True, False]
-
-        def is_running(self):
-            return self._states.pop(0) if self._states else False
-
-        def sync(self):
-            pass
-
-    class DummyViewerContext:
-        def __enter__(self):
-            return DummyViewer()
-
-        def __exit__(self, exc_type, exc, tb):
-            pass
-
-    viewer_module = types.ModuleType("mujoco.viewer")
-    viewer_module.launch_passive = lambda model, data: DummyViewerContext()
-
-    monkeypatch.setitem(sys.modules, "mujoco", dummy_mujoco)
-    monkeypatch.setitem(sys.modules, "mujoco.viewer", viewer_module)
-
-    package_root = root / "ei_vo"
-
-    ei_pkg = types.ModuleType("ei_vo")
-    ei_pkg.__path__ = [str(package_root)]
-    core_pkg = types.ModuleType("ei_vo.core")
-    core_pkg.__path__ = [str(package_root / "core")]
-    render_pkg = types.ModuleType("ei_vo.render")
-    render_pkg.__path__ = [str(package_root / "render")]
-
-    monkeypatch.setitem(sys.modules, "ei_vo", ei_pkg)
-    monkeypatch.setitem(sys.modules, "ei_vo.core", core_pkg)
-    monkeypatch.setitem(sys.modules, "ei_vo.render", render_pkg)
-
-    core_spec = importlib.util.spec_from_file_location(
-        "ei_vo.core.core", package_root / "core" / "core.py"
+    clipped = render_mj.clamp_to_limits(
+        model,
+        [0, 1, 2],
+        np.array([[3.0, -1.0, 0.0], [-3.0, 1.0, 5.0]]),
     )
-    core_module = importlib.util.module_from_spec(core_spec)
-    monkeypatch.setitem(sys.modules, "ei_vo.core.core", core_module)
-    core_spec.loader.exec_module(core_module)
 
-    render_spec = importlib.util.spec_from_file_location(
-        "ei_vo.render.render_mj", package_root / "render" / "render_mj.py"
-    )
-    module = importlib.util.module_from_spec(render_spec)
-    monkeypatch.setitem(sys.modules, "ei_vo.render.render_mj", module)
-    render_spec.loader.exec_module(module)
-
-    ei_pkg.render = render_pkg
-    render_pkg.render_mj = module
-    return module
+    np.testing.assert_allclose(clipped, [[1.0, -0.5, 0.0], [-1.0, 0.5, 2.0]])
 
 
-def test_init_recording_defaults(tmp_path, render_mj, monkeypatch):
+def test_load_robot_model_returns_robot_metadata(install_dummy_mujoco):
+    install_dummy_mujoco(joint_names=["joint1", "joint2", "joint3"])
+    render_mj = _import_render_module()
+
+    robot = render_mj.load_robot_model(pathlib.Path("dummy.xml"))
+
+    assert robot.name == "dummy"
+    assert robot.joint_names == ("joint1", "joint2", "joint3")
+    assert robot.dof == 3
+
+
+def test_init_recording_defaults(tmp_path, install_dummy_mujoco, monkeypatch):
+    install_dummy_mujoco()
+    render_mj = _import_render_module()
     captured = {}
 
     class DummyWriter:
         def __init__(self, path, fps):
             captured["path"] = path
             captured["fps"] = fps
-            self.closed = False
 
         def append_data(self, frame):
             pass
 
         def close(self):
-            self.closed = True
+            pass
 
     imageio_v2 = types.ModuleType("imageio.v2")
     imageio_v2.get_writer = lambda path, fps: DummyWriter(path, fps)
@@ -174,19 +85,23 @@ def test_init_recording_defaults(tmp_path, render_mj, monkeypatch):
     )
 
     assert isinstance(renderer, render_mj.mj.Renderer)
-    assert renderer.width == 1280 and renderer.height == 720
+    assert renderer.width == 1280
+    assert renderer.height == 720
     assert isinstance(camera, render_mj.mj.MjvCamera)
     assert math.isclose(captured["fps"], 100.0)
     assert captured["path"].endswith("video.mp4")
     assert isinstance(writer, DummyWriter)
 
 
-def test_play_records_frames(tmp_path, render_mj, monkeypatch):
+def test_play_trajectory_records_frames(tmp_path, install_dummy_mujoco, monkeypatch):
+    install_dummy_mujoco()
+    render_mj = _import_render_module()
     frames = []
     closed = {"renderer": False, "writer": False}
+    captured_camera = {}
 
     class DummyRenderer:
-        def __init__(self, *args, **kwargs):
+        def __init__(self):
             self.height = 3
             self.width = 4
 
@@ -213,8 +128,6 @@ def test_play_records_frames(tmp_path, render_mj, monkeypatch):
         def close(self):
             closed["writer"] = True
 
-    captured_camera = {}
-
     def fake_init(model, dt, record_path, record_fps, record_size):
         camera = DummyCamera()
         captured_camera["camera"] = camera
@@ -223,21 +136,15 @@ def test_play_records_frames(tmp_path, render_mj, monkeypatch):
     monkeypatch.setattr(render_mj, "_init_recording", fake_init)
     monkeypatch.setattr(render_mj.time, "sleep", lambda _: None)
 
-    traj = types.SimpleNamespace(q=np.linspace(0.0, 1.0, 21, dtype=float).reshape(3, 7))
-
-    render_mj.play(
+    render_mj.play_trajectory(
         "model.xml",
-        traj,
-        slow=1.0,
-        hz=10.0,
-        loop=False,
-        record_path=tmp_path / "out.mp4",
-        record_fps=None,
-        record_size=None,
+        np.linspace(0.0, 1.0, 21, dtype=float).reshape(3, 7),
+        playback=render_mj.PlaybackConfig(hz=10.0, slow=1.0, loop=False),
+        recording=render_mj.RecordingConfig(path=tmp_path / "out.mp4"),
     )
 
-    assert len(frames) == traj.q.shape[0]
+    assert len(frames) == 3
     assert all(frame.dtype == np.uint8 for frame in frames)
-    assert np.all(frames[0] == 127)  # 0.5 * 255 rounded down
+    assert np.all(frames[0] == 127)
     assert captured_camera["camera"].distance == pytest.approx(3.75)
     assert closed["renderer"] and closed["writer"]

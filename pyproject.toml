@@ -5,16 +5,49 @@ build-backend = "hatchling.build"
 [project]
 name = "ei_vo"
 version = "0.0.1"
-description = "visualize library"
+description = "Trajectory rendering and kinematics utilities"
 
 license = {text = "MIT License"}
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 classifiers = [
   "Programming Language :: Python :: 3",
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
 ]
 dependencies = [
+    "matplotlib>=3.10.8",
+    "meshcat>=0.3.2",
     "mujoco>=3.4.0",
     "numpy>=2.0.2",
+    "pin>=3.7.0",
 ]
+
+[project.optional-dependencies]
+kinematics = [
+    "literobo",
+    "pin",
+]
+literobo = [
+    "literobo",
+]
+meshcat = [
+    "meshcat",
+]
+pinocchio = [
+    "pin",
+]
+plot = [
+    "matplotlib",
+]
+dev = [
+    "imageio[ffmpeg]",
+    "literobo",
+    "meshcat",
+    "matplotlib",
+    "pin",
+    "pytest",
+]
+
+[project.scripts]
+ei-vo-play = "ei_vo.cli.playback:main"
+ei-vo-demo = "ei_vo.cli.demo:main"

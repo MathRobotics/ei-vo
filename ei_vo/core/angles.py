@@ -50,6 +50,8 @@ def load_angles(path: str | pathlib.Path, deg: bool) -> np.ndarray:
     else:
         raise ValueError(f"Unsupported file extension: {p.suffix}")
 
+    if arr.ndim == 1:
+        arr = arr[None, :]
     if arr.ndim != 2:
         raise ValueError(f"angles must be a 2D array. Got {arr.shape}")
 

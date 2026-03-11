@@ -24,6 +24,16 @@ def quintic(q0: np.ndarray, q1: np.ndarray, T: float, dt: float) -> np.ndarray:
         ``(ceil(T/dt)+1, *q0.shape)``.
     """
 
+    if T <= 0:
+        raise ValueError(f"T must be positive. Got {T}.")
+    if dt <= 0:
+        raise ValueError(f"dt must be positive. Got {dt}.")
+
+    q0 = np.asarray(q0, dtype=float)
+    q1 = np.asarray(q1, dtype=float)
+    if q0.shape != q1.shape:
+        raise ValueError(f"q0 and q1 must have the same shape. Got {q0.shape} and {q1.shape}.")
+
     t = np.arange(0.0, T + 1e-12, dt)
     s = t / max(T, 1e-9)
     a = 10 * s**3 - 15 * s**4 + 6 * s**5

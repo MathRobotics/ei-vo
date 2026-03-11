@@ -1,0 +1,9 @@
+.DS_Store
+.pytest_cache/
+.venv/
+__pycache__/
+*.py[cod]
+recordings/
+examples/joint_angle_log_*.csv
+examples/trajectory.csv
+uv.lock
