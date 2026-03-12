@@ -20,7 +20,7 @@ from ei_vo.mjpython import maybe_relaunch_with_mjpython
 ROOT = Path(__file__).resolve().parent
 MODEL = ROOT / "models/three_dof_arm.urdf"
 RENDERER = "meshcat"  # Change to "mujoco" or "matplotlib".
-BACKEND = "literobo"  # Change to "pinocchio" or None.
+BACKEND = "pinocchio"  # Change to "literobo" or None.
 BASE_LINK = "base"
 END_LINK = "ee"
 

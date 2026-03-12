@@ -24,7 +24,7 @@ ei-vo-play --renderer mujoco --model examples/models/three_dof_arm.urdf --backen
 ```
 
 The first command uses the default `meshcat` renderer, Pinocchio for URDF
-visual playback, and the default `literobo` backend.
+visual playback, and the default `pinocchio` backend.
 
 On macOS, `ei-vo-play --renderer mujoco ...` and `ei-vo-demo --renderer mujoco
 ...` relaunch themselves via `mjpython`.
@@ -43,7 +43,7 @@ python examples/switch_renderer.py
 ```
 
 Edit `MODEL`, `RENDERER`, and `BACKEND` to switch the playback setup. The file
-defaults to `meshcat` plus `literobo`. If you change `RENDERER` to `"mujoco"`
+defaults to `meshcat` plus `pinocchio`. If you change `RENDERER` to `"mujoco"`
 on macOS, the script relaunches itself via `mjpython`.
 
 ## Options

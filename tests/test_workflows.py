@@ -128,10 +128,10 @@ def test_switch_renderer_example_supports_matplotlib(monkeypatch):
     assert isinstance(calls["kwargs"]["renderer"], RenderSpec)
     assert calls["kwargs"]["renderer"].renderer == "matplotlib"
     assert isinstance(calls["kwargs"]["kinematics"], KinematicsSpec)
-    assert calls["kwargs"]["kinematics"].backend == "literobo"
+    assert calls["kwargs"]["kinematics"].backend == "pinocchio"
 
 
-def test_switch_renderer_example_defaults_to_meshcat_and_literobo(monkeypatch):
+def test_switch_renderer_example_defaults_to_meshcat_and_pinocchio(monkeypatch):
     module = importlib.import_module("examples.switch_renderer")
     calls = {}
 
@@ -145,7 +145,7 @@ def test_switch_renderer_example_defaults_to_meshcat_and_literobo(monkeypatch):
     assert str(calls["args"][0]).endswith("examples/models/three_dof_arm.urdf")
     assert calls["kwargs"]["renderer"] == "meshcat"
     assert isinstance(calls["kwargs"]["kinematics"], KinematicsSpec)
-    assert calls["kwargs"]["kinematics"].backend == "literobo"
+    assert calls["kwargs"]["kinematics"].backend == "pinocchio"
     assert calls["kwargs"]["kinematics"].base_link == "base"
     assert calls["kwargs"]["kinematics"].end_link == "ee"
 

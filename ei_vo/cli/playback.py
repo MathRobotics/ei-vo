@@ -48,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--backend",
         choices=available_kinematics_backends(),
-        default="literobo",
+        default="pinocchio",
         help="Optional kinematics backend to attach to the playback workflow",
     )
     parser.add_argument("--base-link", default="base", help="Base link for --backend")

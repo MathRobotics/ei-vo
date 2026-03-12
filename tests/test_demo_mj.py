@@ -280,7 +280,7 @@ def test_cli_main_builds_program_and_calls_play(monkeypatch, install_dummy_mujoc
     assert calls["kwargs"]["hz"] == 10.0
     assert calls["kwargs"]["renderer"] == "meshcat"
     assert isinstance(calls["kwargs"]["kinematics"], KinematicsSpec)
-    assert calls["kwargs"]["kinematics"].backend == "literobo"
+    assert calls["kwargs"]["kinematics"].backend == "pinocchio"
     assert calls["kwargs"]["kinematics"].base_link == "base"
     assert calls["kwargs"]["kinematics"].end_link == "ee"
     assert calls["kwargs"]["record_path"] is None
@@ -354,7 +354,7 @@ def test_cli_accepts_trajectries_option(monkeypatch, tmp_path: pathlib.Path):
     assert isinstance(calls["trajectory"], Trajectory)
     assert calls["trajectory"].dof == 2
     assert calls["kwargs"]["renderer"] == "meshcat"
-    assert calls["kwargs"]["kinematics"].backend == "literobo"
+    assert calls["kwargs"]["kinematics"].backend == "pinocchio"
 
 
 def test_cli_accepts_backend(monkeypatch):

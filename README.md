@@ -48,7 +48,7 @@ ei-vo-play --model examples/models/three_dof_arm.urdf --program waypoints --hz 2
 ```
 
 This uses `meshcat` for rendering, Pinocchio for URDF visual playback, and
-`literobo` for the optional kinematics backend by default.
+`pinocchio` for the optional kinematics backend by default.
 
 Matplotlib 3D playback using the same URDF model:
 
