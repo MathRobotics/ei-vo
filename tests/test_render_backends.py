@@ -108,6 +108,7 @@ def _install_dummy_matplotlib(monkeypatch):
 def _install_dummy_meshcat(monkeypatch):
     captured = {
         "objects": {},
+        "properties": {},
         "transforms": {},
         "opened": 0,
         "html": "<html>meshcat-scene</html>",
@@ -126,6 +127,12 @@ def _install_dummy_meshcat(monkeypatch):
 
         def set_transform(self, transform):
             captured["transforms"].setdefault(self.path, []).append(np.asarray(transform))
+
+        def set_property(self, key, value):
+            captured["properties"][(self.path, key)] = value
+
+        def delete(self):
+            captured.setdefault("deleted", []).append(self.path)
 
         def open(self):
             captured["opened"] += 1
@@ -168,6 +175,74 @@ def _install_dummy_meshcat(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "meshcat", meshcat)
     monkeypatch.setitem(sys.modules, "meshcat.geometry", geometry)
+    return captured
+
+
+def _install_dummy_pinocchio_meshcat(monkeypatch):
+    captured = {"loaded_roots": [], "displayed": []}
+
+    class DummyModel:
+        nq = 3
+
+        def __init__(self):
+            self.lowerPositionLimit = np.array([-0.5, -0.25, -1.0], dtype=float)
+            self.upperPositionLimit = np.array([0.5, 0.25, 1.0], dtype=float)
+
+    class DummyGeometryModel:
+        def __init__(self):
+            self.geometryObjects = [types.SimpleNamespace(name="base"), types.SimpleNamespace(name="ee")]
+
+    class DummyMeshcatVisualizer:
+        def __init__(self, model, collision_model=None, visual_model=None, **kwargs):
+            del kwargs
+            self.model = model
+            self.collision_model = collision_model
+            self.visual_model = visual_model
+            self.viewer = None
+            self.viewerRootNodeName = None
+            self.viewerVisualGroupName = None
+            self.viewerCollisionGroupName = None
+
+        def initViewer(self, viewer=None, open=False, loadModel=False, zmq_url=None):
+            del loadModel, zmq_url
+            self.viewer = viewer
+            if open:
+                self.viewer.open()
+
+        def loadViewerModel(
+            self,
+            rootNodeName="pinocchio",
+            color=None,
+            collision_color=None,
+            visual_color=None,
+        ):
+            del color, collision_color, visual_color
+            self.viewerRootNodeName = rootNodeName
+            self.viewerVisualGroupName = f"{rootNodeName}/visuals"
+            self.viewerCollisionGroupName = f"{rootNodeName}/collisions"
+            captured["loaded_roots"].append(rootNodeName)
+            self.viewer[f"{self.viewerVisualGroupName}/base"].set_object("base")
+            self.viewer[f"{self.viewerVisualGroupName}/ee"].set_object("ee")
+            self.viewer[self.viewerCollisionGroupName].set_property("visible", False)
+            self.viewer[self.viewerVisualGroupName].set_property("visible", True)
+
+        def display(self, q=None):
+            row = np.asarray(q, dtype=float)
+            captured["displayed"].append(row.copy())
+            self.viewer[f"{self.viewerVisualGroupName}/base"].set_transform(np.eye(4))
+            transform = np.eye(4)
+            transform[0, 3] = row.sum()
+            self.viewer[f"{self.viewerVisualGroupName}/ee"].set_transform(transform)
+
+    pinocchio = types.ModuleType("pinocchio")
+    pinocchio.buildModelsFromUrdf = lambda path: (DummyModel(), DummyGeometryModel(), DummyGeometryModel())
+
+    visualize = types.ModuleType("pinocchio.visualize")
+    visualize.MeshcatVisualizer = DummyMeshcatVisualizer
+    pinocchio.visualize = visualize
+
+    monkeypatch.setitem(sys.modules, "pinocchio", pinocchio)
+    monkeypatch.setitem(sys.modules, "pinocchio.visualize", visualize)
     return captured
 
 
@@ -300,6 +375,36 @@ def test_meshcat_renderer_exports_html(monkeypatch, tmp_path, install_dummy_mujo
     assert "geoms/1/shape" in captured["objects"]
     assert "geoms/2/cylinder" in captured["objects"]
     assert len(captured["transforms"]["geoms/0"]) == trajectory.steps
+    assert output_path.with_suffix(".html").read_text(encoding="utf-8") == captured["html"]
+
+
+def test_meshcat_renderer_uses_pinocchio_for_urdf(monkeypatch, tmp_path):
+    captured = _install_dummy_meshcat(monkeypatch)
+    pinocchio_captured = _install_dummy_pinocchio_meshcat(monkeypatch)
+    sys.modules.pop("ei_vo.render.render_meshcat", None)
+    meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
+    monkeypatch.setattr(meshcat_renderer.time, "sleep", lambda _: None)
+
+    model_path = tmp_path / "robot.urdf"
+    model_path.write_text("<robot/>", encoding="utf-8")
+    trajectory = Trajectory.from_positions([[1.0, -1.0, 2.0], [-1.0, 1.0, -2.0]], dt=0.1)
+    output_path = tmp_path / "scene"
+    meshcat_renderer.play(
+        model_path,
+        trajectory,
+        hz=20.0,
+        open_browser=True,
+        record_path=output_path,
+    )
+
+    assert captured["opened"] == 1
+    assert pinocchio_captured["loaded_roots"] == ["pinocchio"]
+    np.testing.assert_allclose(pinocchio_captured["displayed"][0], [0.5, -0.25, 1.0])
+    np.testing.assert_allclose(pinocchio_captured["displayed"][1], [-0.5, 0.25, -1.0])
+    assert "pinocchio/visuals/base" in captured["objects"]
+    assert "pinocchio/visuals/ee" in captured["objects"]
+    assert len(captured["transforms"]["pinocchio/visuals/ee"]) == trajectory.steps
+    assert captured["properties"][("pinocchio/visuals", "visible")] is True
     assert output_path.with_suffix(".html").read_text(encoding="utf-8") == captured["html"]
 
 

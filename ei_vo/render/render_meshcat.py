@@ -1,15 +1,45 @@
-"""MeshCat-based playback backend for MuJoCo models."""
+"""MeshCat-based playback backend."""
 
 from __future__ import annotations
 
 import pathlib
 import time
 
-import mujoco as mj
 import numpy as np
 
 from ..core import Trajectory
 from .render_mj import PlaybackConfig, detect_arm_joints
+
+
+def _import_meshcat():
+    try:
+        import meshcat
+    except ImportError as exc:
+        raise RuntimeError(
+            "The 'meshcat' renderer requires the optional dependency 'meshcat'."
+        ) from exc
+    return meshcat
+
+
+def _import_mujoco():
+    try:
+        import mujoco as mj
+    except ImportError as exc:
+        raise RuntimeError(
+            "The 'meshcat' renderer requires the optional dependency 'mujoco' for non-URDF models."
+        ) from exc
+    return mj
+
+
+def _import_pinocchio_visualizer():
+    try:
+        import pinocchio as pin
+        from pinocchio.visualize import MeshcatVisualizer
+    except ImportError as exc:
+        raise RuntimeError(
+            "The 'meshcat' renderer requires the optional dependency 'pin' for URDF visual playback."
+        ) from exc
+    return pin, MeshcatVisualizer
 
 
 def _clip_positions_to_limits(q: np.ndarray, limits: np.ndarray) -> np.ndarray:
@@ -23,6 +53,27 @@ def _clip_positions_to_limits(q: np.ndarray, limits: np.ndarray) -> np.ndarray:
     for index, (lower, upper) in enumerate(limits):
         if lower < upper:
             positions[:, index] = np.clip(positions[:, index], lower, upper)
+    return positions
+
+
+def _clip_positions_to_pinocchio_limits(
+    q: np.ndarray,
+    lower_limits: np.ndarray,
+    upper_limits: np.ndarray,
+) -> np.ndarray:
+    positions = np.asarray(q, dtype=float).copy()
+    lower = np.asarray(lower_limits, dtype=float).reshape(-1)
+    upper = np.asarray(upper_limits, dtype=float).reshape(-1)
+    if positions.ndim != 2:
+        raise ValueError(f"Trajectory positions must be 2D. Got {positions.shape}.")
+    if positions.shape[1] != lower.shape[0] or positions.shape[1] != upper.shape[0]:
+        raise ValueError(
+            "Trajectory dof "
+            f"({positions.shape[1]}) does not match Pinocchio model dof ({lower.shape[0]})."
+        )
+    for index, (lower_bound, upper_bound) in enumerate(zip(lower, upper)):
+        if np.isfinite(lower_bound) and np.isfinite(upper_bound) and lower_bound < upper_bound:
+            positions[:, index] = np.clip(positions[:, index], lower_bound, upper_bound)
     return positions
 
 
@@ -72,7 +123,15 @@ def _geom_rgba(model: mj.MjModel, geom_id: int) -> np.ndarray:
     return np.array([0.7, 0.7, 0.7, 1.0], dtype=float)
 
 
-def _set_geom_object(visualizer, meshcat_geometry, geom_type: int, geom_id: int, geom_size: np.ndarray, rgba: np.ndarray) -> bool:
+def _set_geom_object(
+    visualizer,
+    meshcat_geometry,
+    mj,
+    geom_type: int,
+    geom_id: int,
+    geom_size: np.ndarray,
+    rgba: np.ndarray,
+) -> bool:
     geom_node = visualizer[f"geoms/{geom_id}"]
     material = _rgba_to_material(meshcat_geometry, rgba)
 
@@ -115,6 +174,7 @@ def _set_geom_object(visualizer, meshcat_geometry, geom_type: int, geom_id: int,
 
 def _create_scene(visualizer, model: mj.MjModel) -> tuple[int, ...]:
     supported_geom_ids: list[int] = []
+    mj = _import_mujoco()
     try:
         import meshcat.geometry as meshcat_geometry
     except ImportError as exc:
@@ -126,7 +186,7 @@ def _create_scene(visualizer, model: mj.MjModel) -> tuple[int, ...]:
         geom_type = int(model.geom_type[geom_id])
         geom_size = np.asarray(model.geom_size[geom_id], dtype=float)
         rgba = _geom_rgba(model, geom_id)
-        if _set_geom_object(visualizer, meshcat_geometry, geom_type, geom_id, geom_size, rgba):
+        if _set_geom_object(visualizer, meshcat_geometry, mj, geom_type, geom_id, geom_size, rgba):
             supported_geom_ids.append(geom_id)
     return tuple(supported_geom_ids)
 
@@ -149,48 +209,20 @@ def _save_html(visualizer, record_path: str | pathlib.Path) -> pathlib.Path:
     return path
 
 
-def play(
-    model_path: str | pathlib.Path | None,
-    traj,
-    slow: float = 1.0,
-    hz: float = 240.0,
-    camera=None,
-    loop: bool = False,
-    record_path: str | pathlib.Path | None = None,
-    record_fps: float | None = None,
-    record_size: tuple[int, int] | None = None,
+def _play_with_mujoco(
+    path: pathlib.Path,
+    trajectory: Trajectory,
+    playback: PlaybackConfig,
     *,
-    open_browser: bool = True,
-    root_path: str = "",
-    kinematics_backend: str | None = None,
-    kinematics_model_path: str | pathlib.Path | None = None,
-    base_link: str | None = None,
-    end_link: str | None = None,
+    open_browser: bool,
+    root_path: str,
+    record_path: str | pathlib.Path | None,
 ) -> None:
-    """Render a MuJoCo trajectory in MeshCat.
+    mj = _import_mujoco()
+    meshcat = _import_meshcat()
 
-    This backend uses MuJoCo for kinematics and MeshCat for browser-based
-    visualization. When ``record_path`` is given, the current scene is exported
-    as HTML after the first playback pass.
-    """
-
-    del camera, record_fps, record_size, kinematics_backend, kinematics_model_path, base_link, end_link
-
-    if model_path is None:
-        raise ValueError("--model is required when using the meshcat renderer.")
-
-    try:
-        import meshcat
-    except ImportError as exc:
-        raise RuntimeError(
-            "The 'meshcat' renderer requires the optional dependency 'meshcat'."
-        ) from exc
-
-    playback = PlaybackConfig(hz=hz, slow=slow, loop=loop)
-    path = pathlib.Path(model_path)
     model = mj.MjModel.from_xml_path(path.as_posix())
     data = mj.MjData(model)
-    trajectory = Trajectory.coerce(traj)
     arm_joints = detect_arm_joints(model, expected_dof=trajectory.dof)
     positions = _clip_positions_to_limits(trajectory.q, arm_joints.limits)
 
@@ -215,6 +247,103 @@ def play(
 
         if not playback.loop:
             break
+
+
+def _play_with_pinocchio(
+    path: pathlib.Path,
+    trajectory: Trajectory,
+    playback: PlaybackConfig,
+    *,
+    open_browser: bool,
+    root_path: str,
+    record_path: str | pathlib.Path | None,
+) -> None:
+    meshcat = _import_meshcat()
+    pin, MeshcatVisualizer = _import_pinocchio_visualizer()
+
+    model, collision_model, visual_model = pin.buildModelsFromUrdf(path.as_posix())
+    model_dof = int(getattr(model, "nq"))
+    if model_dof != trajectory.dof:
+        raise ValueError(
+            f"Trajectory dof ({trajectory.dof}) does not match Pinocchio model dof ({model_dof})."
+        )
+
+    lower_limits = getattr(model, "lowerPositionLimit", np.full(model_dof, -np.inf))
+    upper_limits = getattr(model, "upperPositionLimit", np.full(model_dof, np.inf))
+    positions = _clip_positions_to_pinocchio_limits(trajectory.q, lower_limits, upper_limits)
+
+    visualizer = meshcat.Visualizer()
+    visualizer_wrapper = MeshcatVisualizer(model, collision_model, visual_model)
+    visualizer_wrapper.initViewer(viewer=visualizer, open=open_browser, loadModel=False)
+    visualizer_wrapper.loadViewerModel(rootNodeName=root_path or "pinocchio")
+
+    exported = False
+    while True:
+        for row in positions:
+            visualizer_wrapper.display(np.asarray(row, dtype=float))
+            time.sleep(playback.step_dt)
+
+        if record_path is not None and not exported:
+            _save_html(visualizer, record_path)
+            exported = True
+
+        if not playback.loop:
+            break
+
+
+def play(
+    model_path: str | pathlib.Path | None,
+    traj,
+    slow: float = 1.0,
+    hz: float = 240.0,
+    camera=None,
+    loop: bool = False,
+    record_path: str | pathlib.Path | None = None,
+    record_fps: float | None = None,
+    record_size: tuple[int, int] | None = None,
+    *,
+    open_browser: bool = True,
+    root_path: str = "",
+    kinematics_backend: str | None = None,
+    kinematics_model_path: str | pathlib.Path | None = None,
+    base_link: str | None = None,
+    end_link: str | None = None,
+) -> None:
+    """Render a trajectory in MeshCat.
+
+    URDF inputs are rendered via Pinocchio's visual model so `<visual>` geometry
+    shows up in MeshCat. Other inputs fall back to MuJoCo geom playback. When
+    ``record_path`` is given, the current scene is exported as HTML after the
+    first playback pass.
+    """
+
+    del camera, record_fps, record_size, kinematics_backend, kinematics_model_path, base_link, end_link
+
+    if model_path is None:
+        raise ValueError("--model is required when using the meshcat renderer.")
+
+    playback = PlaybackConfig(hz=hz, slow=slow, loop=loop)
+    path = pathlib.Path(model_path)
+    trajectory = Trajectory.coerce(traj)
+    if path.suffix.lower() == ".urdf":
+        _play_with_pinocchio(
+            path,
+            trajectory,
+            playback,
+            open_browser=open_browser,
+            root_path=root_path,
+            record_path=record_path,
+        )
+        return
+
+    _play_with_mujoco(
+        path,
+        trajectory,
+        playback,
+        open_browser=open_browser,
+        root_path=root_path,
+        record_path=record_path,
+    )
 
 
 __all__ = ["play"]

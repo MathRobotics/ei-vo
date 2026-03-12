@@ -23,8 +23,8 @@ ei-vo-play --renderer matplotlib --model examples/models/three_dof_arm.urdf
 ei-vo-play --renderer mujoco --model examples/models/three_dof_arm.urdf --backend pinocchio --base-link base --end-link ee
 ```
 
-The first command uses the default `meshcat` renderer and default `literobo`
-backend.
+The first command uses the default `meshcat` renderer, Pinocchio for URDF
+visual playback, and the default `literobo` backend.
 
 On macOS, `ei-vo-play --renderer mujoco ...` and `ei-vo-demo --renderer mujoco
 ...` relaunch themselves via `mjpython`.
@@ -67,7 +67,8 @@ on macOS, the script relaunches itself via `mjpython`.
 | `--recordSize W H` | Override output resolution |
 
 The built-in renderers and the optional kinematics backend all read the same
-URDF supplied via `--model`. XML/MJCF input is not supported in the CLI.
+URDF supplied via `--model`. MeshCat displays URDF `<visual>` geometry through
+Pinocchio. XML/MJCF input is not supported in the CLI.
 
 ## Recording
 

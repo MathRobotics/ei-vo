@@ -11,7 +11,7 @@ pip install -e .[dev]
 ```
 
 - `mujoco` backend: requires MuJoCo on the host system
-- `meshcat` backend: requires `meshcat` and a URDF model
+- `meshcat` backend: requires `meshcat`; URDF playback uses Pinocchio's visual model
 - `matplotlib` backend: requires `matplotlib`, `mujoco`, and a URDF model
 - `pinocchio` kinematics backend: requires the `pin` package
 - `literobo` kinematics backend: requires `literobo` and a URDF model
@@ -47,8 +47,8 @@ wiring:
 ei-vo-play --model examples/models/three_dof_arm.urdf --program waypoints --hz 240
 ```
 
-This uses `meshcat` for rendering and `literobo` for the optional kinematics
-backend by default.
+This uses `meshcat` for rendering, Pinocchio for URDF visual playback, and
+`literobo` for the optional kinematics backend by default.
 
 Matplotlib 3D playback using the same URDF model:
 
@@ -77,8 +77,9 @@ ei-vo-play \
 ```
 
 The bundled `mujoco`, `meshcat`, and `matplotlib` renderers all read the same
-URDF passed via `--model`. `--backend` selects the workflow's kinematics
-backend. XML/MJCF input is no longer supported in the CLI.
+URDF passed via `--model`. MeshCat displays URDF `<visual>` geometry through
+Pinocchio, while `--backend` selects the workflow's kinematics backend.
+XML/MJCF input is no longer supported in the CLI.
 
 Compatibility aliases still work:
 
