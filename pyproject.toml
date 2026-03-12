@@ -39,6 +39,9 @@ pinocchio = [
 plot = [
     "matplotlib",
 ]
+recording = [
+    "imageio[ffmpeg]",
+]
 dev = [
     "imageio[ffmpeg]",
     "literobo",

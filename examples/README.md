@@ -62,9 +62,13 @@ on macOS, the script relaunches itself via `mjpython`.
 | `--program {waypoints,sine}` | Built-in trajectory program when `--trajectries` is omitted |
 | `--segT FLOAT` | Segment duration for waypoint programs |
 | `--slow FLOAT` | Slow-motion playback factor |
-| `--record [PATH]` | Save backend output. MuJoCo writes MP4, MeshCat writes HTML, Matplotlib writes PNG |
-| `--recordFps FLOAT` | Override recording FPS for MuJoCo |
-| `--recordSize W H` | Override output resolution |
+| `--cameraDistance FLOAT` | Camera distance for `mujoco`, `meshcat`, or `matplotlib` |
+| `--cameraAzimuth FLOAT` | Camera azimuth in degrees for `mujoco`, `meshcat`, or `matplotlib` |
+| `--cameraElevation FLOAT` | Camera elevation in degrees for `mujoco`, `meshcat`, or `matplotlib` |
+| `--cameraLookat X Y Z` | Camera look-at point for `mujoco`, `meshcat`, or `matplotlib` |
+| `--record [PATH]` | Save backend output. MuJoCo writes MP4, MeshCat writes MP4 plus HTML sidecar, Matplotlib writes PNG |
+| `--recordFps FLOAT` | Override recording FPS for MuJoCo or MeshCat video export |
+| `--recordSize W H` | Override video output resolution |
 
 The built-in renderers and the optional kinematics backend all read the same
 URDF supplied via `--model`. MeshCat displays URDF `<visual>` geometry through
@@ -83,7 +87,7 @@ ei-vo-play \
   --renderer meshcat \
   --model examples/models/three_dof_arm.urdf \
   --trajectries examples/trajectories/three_dof_arm_waypoints.csv \
-  --record recordings/scene.html
+  --record recordings/scene.mp4
 
 ei-vo-play \
   --renderer matplotlib \
@@ -93,7 +97,9 @@ ei-vo-play \
 ```
 
 Passing `--record` without a filename auto-generates a backend-specific output
-name under `recordings/`.
+name under `recordings/`. MeshCat recordings also emit a same-stem `.html`
+sidecar next to the MP4. MP4 export requires `pip install -e '.[recording]'`
+or `pip install 'imageio[ffmpeg]'`.
 
 ## Trajectory files
 

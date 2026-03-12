@@ -284,6 +284,68 @@ def test_cli_main_builds_program_and_calls_play(monkeypatch, install_dummy_mujoc
     assert calls["kwargs"]["kinematics"].base_link == "base"
     assert calls["kwargs"]["kinematics"].end_link == "ee"
     assert calls["kwargs"]["record_path"] is None
+    assert calls["kwargs"]["camera"] is None
+
+
+def test_cli_main_passes_camera_settings(monkeypatch):
+    cli = importlib.import_module("ei_vo.cli.playback")
+    calls = {}
+
+    monkeypatch.setattr(cli.os.path, "isfile", lambda path: True)
+    monkeypatch.setattr(cli, "_load_model_dof", lambda path: 3)
+    monkeypatch.setattr(cli, "maybe_relaunch_with_mjpython", lambda *args, **kwargs: None)
+
+    def fake_play(model_path, trajectory, **kwargs):
+        calls["model_path"] = model_path
+        calls["trajectory"] = trajectory
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(cli, "play", fake_play)
+
+    exit_code = cli.main(
+        [
+            "--renderer",
+            "mujoco",
+            "--model",
+            "robot.urdf",
+            "--program",
+            "waypoints",
+            "--cameraDistance",
+            "3.5",
+            "--cameraAzimuth",
+            "120",
+            "--cameraElevation",
+            "-25",
+            "--cameraLookat",
+            "0.1",
+            "0.2",
+            "0.3",
+        ]
+    )
+
+    assert exit_code == 0
+    assert calls["model_path"] == "robot.urdf"
+    assert isinstance(calls["trajectory"], Trajectory)
+    assert calls["kwargs"]["renderer"] == "mujoco"
+    assert calls["kwargs"]["camera"] == {
+        "distance": 3.5,
+        "azimuth": 120.0,
+        "elevation": -25.0,
+        "lookat": (0.1, 0.2, 0.3),
+    }
+
+
+def test_cli_meshcat_record_defaults_to_mp4(monkeypatch, tmp_path: pathlib.Path):
+    cli = importlib.import_module("ei_vo.cli.playback")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("ei_vo.core.recording.time.strftime", lambda fmt: "20240102-030405")
+
+    args = cli.build_parser().parse_args(["--renderer", "meshcat", "--record"])
+    path, auto_dir = cli._resolve_recording(args)
+
+    expected_dir = tmp_path / "recordings"
+    assert path == (expected_dir / "meshcat_20240102-030405.mp4").as_posix()
+    assert auto_dir == expected_dir.as_posix()
 
 
 def test_cli_mujoco_renderer_relaunches_via_helper(monkeypatch):

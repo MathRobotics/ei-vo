@@ -70,6 +70,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--segT", type=float, default=1.5, help="Waypoint segment duration [s]")
     parser.add_argument("--slow", type=float, default=1.0, help="Playback slowdown factor (>1 is slower)")
+    parser.add_argument("--cameraDistance", type=float, default=None, help="Camera distance")
+    parser.add_argument("--cameraAzimuth", type=float, default=None, help="Camera azimuth [deg]")
+    parser.add_argument("--cameraElevation", type=float, default=None, help="Camera elevation [deg]")
+    parser.add_argument(
+        "--cameraLookat",
+        type=float,
+        nargs=3,
+        metavar=("X", "Y", "Z"),
+        default=None,
+        help="Camera look-at point",
+    )
     parser.add_argument(
         "--record",
         nargs="?",
@@ -77,14 +88,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Recording output path. Omitting the filename writes into ./recordings/",
     )
-    parser.add_argument("--recordFps", type=float, default=None, help="Recording frame rate [fps]")
+    parser.add_argument(
+        "--recordFps",
+        type=float,
+        default=None,
+        help="Recording frame rate [fps] for video-capable renderers",
+    )
     parser.add_argument(
         "--recordSize",
         type=int,
         nargs=2,
         metavar=("W", "H"),
         default=None,
-        help="Recording width and height in pixels",
+        help="Recording width and height in pixels for video-capable renderers",
     )
     return parser
 
@@ -140,7 +156,7 @@ def _resolve_recording(args: argparse.Namespace) -> tuple[str | None, str | None
     artifact_map = {
         "matplotlib": ("matplotlib_", ".png"),
         "mujoco": ("playback_", ".mp4"),
-        "meshcat": ("meshcat_", ".html"),
+        "meshcat": ("meshcat_", ".mp4"),
     }
     artifact_prefix, artifact_suffix = artifact_map[args.renderer]
     return resolve_record_destination(
@@ -172,10 +188,28 @@ def _build_kinematics_spec(args: argparse.Namespace) -> KinematicsSpec | None:
     )
 
 
+def _build_camera(args: argparse.Namespace) -> dict[str, object] | None:
+    if (
+        args.cameraDistance is None
+        and args.cameraAzimuth is None
+        and args.cameraElevation is None
+        and args.cameraLookat is None
+    ):
+        return None
+
+    return {
+        "distance": args.cameraDistance,
+        "azimuth": args.cameraAzimuth,
+        "elevation": args.cameraElevation,
+        "lookat": tuple(args.cameraLookat) if args.cameraLookat is not None else None,
+    }
+
+
 def _build_play_kwargs(args: argparse.Namespace, *, record_path: str | None) -> dict[str, object]:
     return {
         "slow": args.slow,
         "hz": args.hz,
+        "camera": _build_camera(args),
         "loop": args.loop,
         "record_path": record_path,
         "record_fps": args.recordFps,

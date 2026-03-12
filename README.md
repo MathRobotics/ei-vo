@@ -7,7 +7,9 @@ integration points.
 ## Setup
 
 ```bash
-pip install -e .[dev]
+pip install -e .
+pip install -e '.[recording]'  # if you use --record for MP4 export
+pip install -e '.[dev]'        # if you are developing ei-vo itself
 ```
 
 - `mujoco` backend: requires MuJoCo on the host system
@@ -15,7 +17,9 @@ pip install -e .[dev]
 - `matplotlib` backend: requires `matplotlib`, `mujoco`, and a URDF model
 - `pinocchio` kinematics backend: requires the `pin` package
 - `literobo` kinematics backend: requires `literobo` and a URDF model
-- MP4 recording with MuJoCo additionally uses `imageio[ffmpeg]`
+- MP4 recording with MuJoCo or MeshCat additionally uses `imageio[ffmpeg]`
+- MeshCat video export additionally requires a Chromium-based browser such as
+  `google-chrome` or `chromium`
 - On macOS, MuJoCo's passive viewer requires `mjpython`. The CLI relaunches
   `--renderer mujoco` runs automatically via `mjpython`; direct Python scripts
   that use the MuJoCo renderer should be started with `mjpython`.
@@ -99,9 +103,23 @@ ei-vo-play \
   --trajectries examples/trajectories/three_dof_arm_waypoints.csv
 ```
 
+Set a fixed camera for MuJoCo, MeshCat, or Matplotlib playback / recording:
+
+```bash
+ei-vo-play \
+  --renderer mujoco \
+  --model examples/models/three_dof_arm.urdf \
+  --cameraDistance 3.5 \
+  --cameraAzimuth 120 \
+  --cameraElevation -25 \
+  --cameraLookat 0.0 0.0 0.4
+```
+
 Record MuJoCo playback to MP4:
 
 ```bash
+pip install -e '.[recording]'
+
 ei-vo-play \
   --model examples/models/three_dof_arm.urdf \
   --record recordings/playback.mp4 \
@@ -119,14 +137,16 @@ ei-vo-play \
   --record recordings/link_frame.png
 ```
 
-Export a MeshCat scene as HTML:
+Record MeshCat playback to MP4 and save a standalone HTML sidecar:
 
 ```bash
+pip install -e '.[recording]'
+
 ei-vo-play \
   --renderer meshcat \
   --model examples/models/three_dof_arm.urdf \
   --trajectries examples/trajectories/three_dof_arm_waypoints.csv \
-  --record recordings/scene.html
+  --record recordings/scene.mp4
 ```
 
 ## Python usage
@@ -135,6 +155,7 @@ ei-vo-play \
 from pathlib import Path
 
 from ei_vo import (
+    CameraSettings,
     KinematicsSpec,
     RenderSpec,
     render_program,
@@ -156,13 +177,19 @@ render_program(
 render_program(
     ROOT / "models/three_dof_arm.urdf",
     renderer="mujoco",
+    camera=CameraSettings(distance=3.5, azimuth=120.0, elevation=-25.0, lookat=(0.0, 0.0, 0.4)),
     kinematics=KinematicsSpec(
         "pinocchio",
         base_link="base",
         end_link="ee",
     ),
 )
-render_trajectory(ROOT / "models/three_dof_arm.urdf", trajectory, renderer=RenderSpec("meshcat"))
+render_trajectory(
+    ROOT / "models/three_dof_arm.urdf",
+    trajectory,
+    renderer=RenderSpec("meshcat"),
+    camera=CameraSettings(distance=3.5, azimuth=120.0, elevation=-25.0, lookat=(0.0, 0.0, 0.4)),
+)
 ```
 
 On macOS, scripts that call the Python API with `renderer="mujoco"` should be

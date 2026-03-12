@@ -261,7 +261,13 @@ def _init_recording(
     camera = mj.MjvCamera()
     mj.mjv_defaultCamera(camera)
     fps = recording.fps if recording.fps is not None else (1.0 / max(dt, 1e-9))
-    writer = imageio.get_writer(path.as_posix(), fps=fps)
+    try:
+        writer = imageio.get_writer(path.as_posix(), fps=fps)
+    except ValueError as exc:
+        raise RuntimeError(
+            "MP4 recording requires an imageio video backend. "
+            "Install 'imageio[ffmpeg]' (recommended) or 'imageio[pyav]'."
+        ) from exc
     return renderer, camera, writer
 
 

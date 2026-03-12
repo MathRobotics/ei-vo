@@ -93,6 +93,31 @@ def test_init_recording_defaults(tmp_path, install_dummy_mujoco, monkeypatch):
     assert isinstance(writer, DummyWriter)
 
 
+def test_init_recording_requires_video_backend(tmp_path, install_dummy_mujoco, monkeypatch):
+    install_dummy_mujoco()
+    render_mj = _import_render_module()
+
+    def fail_get_writer(path, fps):
+        raise ValueError("Could not find a backend to open the path.")
+
+    imageio_v2 = types.ModuleType("imageio.v2")
+    imageio_v2.get_writer = fail_get_writer
+    imageio_module = types.ModuleType("imageio")
+    imageio_module.v2 = imageio_v2
+
+    monkeypatch.setitem(sys.modules, "imageio", imageio_module)
+    monkeypatch.setitem(sys.modules, "imageio.v2", imageio_v2)
+
+    with pytest.raises(RuntimeError, match=r"imageio\[ffmpeg\]"):
+        render_mj._init_recording(
+            render_mj.mj.MjModel.from_xml_path("dummy.xml"),
+            dt=0.01,
+            record_path=tmp_path / "video.mp4",
+            record_fps=None,
+            record_size=None,
+        )
+
+
 def test_play_trajectory_records_frames(tmp_path, install_dummy_mujoco, monkeypatch):
     install_dummy_mujoco()
     render_mj = _import_render_module()

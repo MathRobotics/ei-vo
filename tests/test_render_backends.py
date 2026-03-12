@@ -1,4 +1,5 @@
 import importlib
+import pathlib
 import sys
 import pytest
 import types
@@ -110,16 +111,43 @@ def _install_dummy_meshcat(monkeypatch):
         "objects": {},
         "properties": {},
         "transforms": {},
+        "animations": [],
         "opened": 0,
         "html": "<html>meshcat-scene</html>",
     }
+
+    class DummyAnimationFrame:
+        def __init__(self, animation, path, frame):
+            self.animation = animation
+            self.path = path
+            self.frame = frame
+
+        def set_transform(self, transform):
+            self.animation.frames.setdefault(self.path, []).append((self.frame, np.asarray(transform)))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class DummyAnimation:
+        def __init__(self, default_framerate=30):
+            self.default_framerate = default_framerate
+            self.frames = {}
+
+        def at_frame(self, visualizer, frame):
+            return DummyAnimationFrame(self, visualizer.path, frame)
 
     class DummyNode:
         def __init__(self, path=""):
             self.path = path
 
         def __getitem__(self, key):
-            child_path = f"{self.path}/{key}" if self.path else key
+            if key.startswith("/"):
+                child_path = key
+            else:
+                child_path = f"{self.path}/{key}" if self.path else key
             return DummyNode(child_path)
 
         def set_object(self, obj, material=None):
@@ -137,6 +165,16 @@ def _install_dummy_meshcat(monkeypatch):
         def open(self):
             captured["opened"] += 1
             return self
+
+        def set_animation(self, animation, play=True, repetitions=1):
+            captured["animations"].append(
+                {
+                    "animation": animation,
+                    "play": play,
+                    "repetitions": repetitions,
+                    "path": self.path,
+                }
+            )
 
         def static_html(self):
             return captured["html"]
@@ -169,12 +207,17 @@ def _install_dummy_meshcat(monkeypatch):
     geometry.Cylinder = Cylinder
     geometry.MeshPhongMaterial = MeshPhongMaterial
 
+    animation = types.ModuleType("meshcat.animation")
+    animation.Animation = DummyAnimation
+
     meshcat = types.ModuleType("meshcat")
     meshcat.Visualizer = DummyVisualizer
     meshcat.geometry = geometry
+    meshcat.animation = animation
 
     monkeypatch.setitem(sys.modules, "meshcat", meshcat)
     monkeypatch.setitem(sys.modules, "meshcat.geometry", geometry)
+    monkeypatch.setitem(sys.modules, "meshcat.animation", animation)
     return captured
 
 
@@ -354,12 +397,36 @@ def test_matplotlib_renderer_requires_model(monkeypatch):
         matplotlib_renderer.play(None, [[0.0, 0.0], [1.0, 1.0]], hz=2.0)
 
 
-def test_meshcat_renderer_exports_html(monkeypatch, tmp_path, install_dummy_mujoco):
+def test_meshcat_record_targets_promote_video_and_keep_html_sidecar():
+    sys.modules.pop("ei_vo.render.render_meshcat", None)
+    meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
+
+    video_path, html_path = meshcat_renderer._resolve_record_targets(pathlib.Path("scene.html"))
+    auto_video_path, auto_html_path = meshcat_renderer._resolve_record_targets(pathlib.Path("scene"))
+
+    assert video_path == pathlib.Path("scene.mp4")
+    assert html_path == pathlib.Path("scene.html")
+    assert auto_video_path == pathlib.Path("scene.mp4")
+    assert auto_html_path == pathlib.Path("scene.html")
+
+
+def test_meshcat_renderer_records_video_and_html_sidecar(monkeypatch, tmp_path, install_dummy_mujoco):
     install_dummy_mujoco()
     captured = _install_dummy_meshcat(monkeypatch)
     sys.modules.pop("ei_vo.render.render_meshcat", None)
     meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
     monkeypatch.setattr(meshcat_renderer.time, "sleep", lambda _: None)
+    export = {}
+
+    def fake_render_video(html_path, video_path, *, fps, size, frame_count):
+        export["html_path"] = html_path
+        export["video_path"] = video_path
+        export["fps"] = fps
+        export["size"] = size
+        export["frame_count"] = frame_count
+        return video_path
+
+    monkeypatch.setattr(meshcat_renderer, "_render_video_from_html", fake_render_video)
 
     trajectory = Trajectory.from_positions(np.linspace(0.0, 1.0, 14, dtype=float).reshape(2, 7))
     output_path = tmp_path / "scene"
@@ -369,13 +436,56 @@ def test_meshcat_renderer_exports_html(monkeypatch, tmp_path, install_dummy_mujo
         hz=20.0,
         open_browser=False,
         record_path=output_path,
+        record_fps=12.0,
+        record_size=(640, 360),
     )
 
     assert "geoms/0/shape" in captured["objects"]
     assert "geoms/1/shape" in captured["objects"]
     assert "geoms/2/cylinder" in captured["objects"]
     assert len(captured["transforms"]["geoms/0"]) == trajectory.steps
+    assert len(captured["animations"]) == 1
+    assert captured["animations"][0]["play"] is True
+    assert captured["animations"][0]["repetitions"] == 1
+    assert captured["animations"][0]["animation"].default_framerate == 12.0
+    assert len(captured["animations"][0]["animation"].frames["geoms/0"]) == trajectory.steps
+    assert [frame for frame, _ in captured["animations"][0]["animation"].frames["geoms/0"]] == [0, 1]
+    assert export["html_path"] == output_path.with_suffix(".html")
+    assert export["video_path"] == output_path.with_suffix(".mp4")
+    assert export["fps"] == 12.0
+    assert export["size"] == (640, 360)
+    assert export["frame_count"] == trajectory.steps
     assert output_path.with_suffix(".html").read_text(encoding="utf-8") == captured["html"]
+
+
+def test_meshcat_renderer_applies_camera_settings(monkeypatch, install_dummy_mujoco):
+    install_dummy_mujoco()
+    captured = _install_dummy_meshcat(monkeypatch)
+    sys.modules.pop("ei_vo.render.render_meshcat", None)
+    meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
+    monkeypatch.setattr(meshcat_renderer.time, "sleep", lambda _: None)
+
+    meshcat_renderer.play(
+        "dummy.xml",
+        Trajectory.from_positions(np.zeros((1, 7), dtype=float), dt=0.1),
+        hz=20.0,
+        open_browser=False,
+        camera={
+            "distance": 2.0,
+            "azimuth": 90.0,
+            "elevation": -30.0,
+            "lookat": (1.0, 2.0, 3.0),
+        },
+    )
+
+    expected_transform = np.eye(4)
+    expected_transform[:3, 3] = np.array([1.0, 2.0, 3.0], dtype=float)
+    np.testing.assert_allclose(captured["transforms"]["/Cameras/default"][-1], expected_transform)
+    np.testing.assert_allclose(
+        captured["properties"][("/Cameras/default/rotated/<object>", "position")],
+        [0.0, 1.0, np.sqrt(3.0)],
+        atol=1e-6,
+    )
 
 
 def test_meshcat_renderer_uses_pinocchio_for_urdf(monkeypatch, tmp_path):
@@ -384,6 +494,17 @@ def test_meshcat_renderer_uses_pinocchio_for_urdf(monkeypatch, tmp_path):
     sys.modules.pop("ei_vo.render.render_meshcat", None)
     meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
     monkeypatch.setattr(meshcat_renderer.time, "sleep", lambda _: None)
+    export = {}
+
+    def fake_render_video(html_path, video_path, *, fps, size, frame_count):
+        export["html_path"] = html_path
+        export["video_path"] = video_path
+        export["fps"] = fps
+        export["size"] = size
+        export["frame_count"] = frame_count
+        return video_path
+
+    monkeypatch.setattr(meshcat_renderer, "_render_video_from_html", fake_render_video)
 
     model_path = tmp_path / "robot.urdf"
     model_path.write_text("<robot/>", encoding="utf-8")
@@ -404,8 +525,127 @@ def test_meshcat_renderer_uses_pinocchio_for_urdf(monkeypatch, tmp_path):
     assert "pinocchio/visuals/base" in captured["objects"]
     assert "pinocchio/visuals/ee" in captured["objects"]
     assert len(captured["transforms"]["pinocchio/visuals/ee"]) == trajectory.steps
+    assert len(captured["animations"]) == 1
+    assert len(captured["animations"][0]["animation"].frames["pinocchio/visuals/ee"]) == trajectory.steps
+    assert [frame for frame, _ in captured["animations"][0]["animation"].frames["pinocchio/visuals/ee"]] == [0, 1]
+    assert export["html_path"] == output_path.with_suffix(".html")
+    assert export["video_path"] == output_path.with_suffix(".mp4")
+    assert export["fps"] == 20.0
+    assert export["size"] == (1280, 720)
+    assert export["frame_count"] == trajectory.steps
     assert captured["properties"][("pinocchio/visuals", "visible")] is True
     assert output_path.with_suffix(".html").read_text(encoding="utf-8") == captured["html"]
+
+
+def test_meshcat_renderer_applies_lookat_to_urdf_visualizer(monkeypatch, tmp_path):
+    captured = _install_dummy_meshcat(monkeypatch)
+    _install_dummy_pinocchio_meshcat(monkeypatch)
+    sys.modules.pop("ei_vo.render.render_meshcat", None)
+    meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
+    monkeypatch.setattr(meshcat_renderer.time, "sleep", lambda _: None)
+
+    model_path = tmp_path / "robot.urdf"
+    model_path.write_text("<robot/>", encoding="utf-8")
+    meshcat_renderer.play(
+        model_path,
+        Trajectory.from_positions(np.zeros((1, 3), dtype=float), dt=0.1),
+        hz=20.0,
+        open_browser=False,
+        camera={"lookat": (0.5, -0.25, 1.2)},
+    )
+
+    expected_transform = np.eye(4)
+    expected_transform[:3, 3] = np.array([0.5, -0.25, 1.2], dtype=float)
+    np.testing.assert_allclose(captured["transforms"]["/Cameras/default"][-1], expected_transform)
+    np.testing.assert_allclose(
+        captured["properties"][("/Cameras/default/rotated/<object>", "position")],
+        [3.0, 1.0, 0.0],
+    )
+
+
+def test_meshcat_renderer_renders_video_from_html(monkeypatch, tmp_path):
+    sys.modules.pop("ei_vo.render.render_meshcat", None)
+    meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
+    html_path = tmp_path / "scene.html"
+    html_path.write_text("<html><body><div id='meshcat-pane'></div></body></html>", encoding="utf-8")
+    video_path = tmp_path / "scene.mp4"
+    captured = {"calls": [], "frames": []}
+
+    class DummyWriter:
+        def __init__(self, path, fps):
+            captured["path"] = path
+            captured["fps"] = fps
+            captured["closed"] = False
+
+        def append_data(self, frame):
+            captured["frames"].append(np.asarray(frame))
+
+        def close(self):
+            captured["closed"] = True
+
+    imageio_v2 = types.SimpleNamespace(
+        get_writer=lambda path, fps: DummyWriter(path, fps),
+        imread=lambda path: np.full((2, 3, 4), 0.5, dtype=float),
+    )
+
+    def fake_capture(browser_path, html_path_arg, screenshot_path, *, time_seconds, size):
+        captured["calls"].append(
+            {
+                "browser_path": browser_path,
+                "html_path": html_path_arg,
+                "screenshot_path": screenshot_path,
+                "time_seconds": time_seconds,
+                "size": size,
+            }
+        )
+        screenshot_path.write_bytes(b"png")
+
+    monkeypatch.setattr(meshcat_renderer, "_import_imageio", lambda: imageio_v2)
+    monkeypatch.setattr(meshcat_renderer, "_find_browser_executable", lambda: "/usr/bin/google-chrome")
+    monkeypatch.setattr(meshcat_renderer, "_capture_html_frame", fake_capture)
+
+    result = meshcat_renderer._render_video_from_html(
+        html_path,
+        video_path,
+        fps=20.0,
+        size=(320, 240),
+        frame_count=3,
+    )
+
+    assert result == video_path
+    assert captured["path"] == video_path.as_posix()
+    assert captured["fps"] == 20.0
+    assert [call["time_seconds"] for call in captured["calls"]] == pytest.approx([0.0, 0.05, 0.1])
+    assert all(call["size"] == (320, 240) for call in captured["calls"])
+    assert len(captured["frames"]) == 3
+    assert all(frame.dtype == np.uint8 for frame in captured["frames"])
+    assert all(frame.shape == (2, 3, 3) for frame in captured["frames"])
+    assert captured["closed"] is True
+
+
+def test_meshcat_renderer_reports_missing_video_backend(monkeypatch, tmp_path):
+    sys.modules.pop("ei_vo.render.render_meshcat", None)
+    meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
+    html_path = tmp_path / "scene.html"
+    html_path.write_text("<html><body><div id='meshcat-pane'></div></body></html>", encoding="utf-8")
+    video_path = tmp_path / "scene.mp4"
+    imageio_v2 = types.SimpleNamespace(
+        get_writer=lambda path, fps: (_ for _ in ()).throw(
+            ValueError("Could not find a backend to open the path.")
+        )
+    )
+
+    monkeypatch.setattr(meshcat_renderer, "_import_imageio", lambda: imageio_v2)
+    monkeypatch.setattr(meshcat_renderer, "_find_browser_executable", lambda: "/usr/bin/google-chrome")
+
+    with pytest.raises(RuntimeError, match=r"imageio\[ffmpeg\]"):
+        meshcat_renderer._render_video_from_html(
+            html_path,
+            video_path,
+            fps=20.0,
+            size=(320, 240),
+            frame_count=3,
+        )
 
 
 def test_meshcat_material_uses_builtin_bool(monkeypatch, install_dummy_mujoco):
