@@ -209,11 +209,11 @@ def play(
     except ImportError as exc:
         raise RuntimeError("The 'matplotlib' renderer requires the optional dependency 'mujoco'.") from exc
 
-    from .render_mj import _clip_positions_to_limits, detect_arm_joints
+    from .render_mj import _clip_positions_to_limits, _load_mujoco_model, detect_arm_joints
 
     trajectory = Trajectory.coerce(traj)
     path = pathlib.Path(model_path)
-    model = mj.MjModel.from_xml_path(path.as_posix())
+    model = _load_mujoco_model(path)
     data = mj.MjData(model)
     arm_joints = detect_arm_joints(model, expected_dof=trajectory.dof)
     positions = _clip_positions_to_limits(trajectory.q, arm_joints.limits)

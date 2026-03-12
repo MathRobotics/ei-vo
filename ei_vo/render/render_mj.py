@@ -5,7 +5,11 @@ from __future__ import annotations
 import contextlib
 import pathlib
 import re
+import shutil
+import tempfile
 import time
+import urllib.parse
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -149,11 +153,75 @@ def detect_arm_joint_qaddr(model: mj.MjModel, expected_dof: int | None = None) -
     return list(detect_arm_joints(model, expected_dof=expected_dof).qpos_addresses)
 
 
+def _resolve_urdf_mesh_source(model_dir: pathlib.Path, filename: str) -> pathlib.Path | None:
+    parsed = urllib.parse.urlparse(filename)
+    if parsed.scheme in {"", "file"}:
+        raw_path = urllib.parse.unquote(parsed.path if parsed.scheme == "file" else filename)
+        candidate = pathlib.Path(raw_path)
+        if not candidate.is_absolute():
+            candidate = model_dir / candidate
+        return candidate if candidate.is_file() else None
+
+    if parsed.scheme == "package":
+        tail = pathlib.Path(urllib.parse.unquote(parsed.path.lstrip("/")))
+        package_name = urllib.parse.unquote(parsed.netloc)
+        search_roots = (model_dir, *model_dir.parents)
+        for root in search_roots:
+            for candidate in (root / tail, root / package_name / tail):
+                if candidate.is_file():
+                    return candidate
+        return None
+
+    return None
+
+
+@contextlib.contextmanager
+def _prepared_mujoco_model_path(model_path: str | pathlib.Path):
+    path = pathlib.Path(model_path)
+    if path.suffix.lower() != ".urdf":
+        yield path
+        return
+
+    tree = ET.parse(path)
+    root = tree.getroot()
+    staged_assets: list[tuple[pathlib.Path, str]] = []
+
+    # MuJoCo's URDF importer flattens mesh filenames to their basenames when
+    # resolving mesh assets, so nested relative paths need to be staged.
+    for index, mesh in enumerate(root.findall(".//mesh[@filename]")):
+        filename = mesh.get("filename")
+        if filename is None:
+            continue
+        source = _resolve_urdf_mesh_source(path.parent, filename)
+        if source is None:
+            continue
+        staged_name = f"asset_{index:04d}{source.suffix}"
+        mesh.set("filename", staged_name)
+        staged_assets.append((source, staged_name))
+
+    if not staged_assets:
+        yield path
+        return
+
+    with tempfile.TemporaryDirectory(prefix="ei_vo_mj_urdf_") as tmp_dir:
+        staged_dir = pathlib.Path(tmp_dir)
+        staged_path = staged_dir / path.name
+        tree.write(staged_path, encoding="utf-8", xml_declaration=True)
+        for source, staged_name in staged_assets:
+            shutil.copy2(source, staged_dir / staged_name)
+        yield staged_path
+
+
+def _load_mujoco_model(model_path: str | pathlib.Path) -> mj.MjModel:
+    with _prepared_mujoco_model_path(model_path) as prepared_path:
+        return mj.MjModel.from_xml_path(prepared_path.as_posix())
+
+
 def load_robot_model(model_path: str | pathlib.Path, expected_dof: int | None = None) -> RobotModel:
     """Load a MuJoCo model and expose only arm-joint metadata."""
 
     path = pathlib.Path(model_path)
-    model = mj.MjModel.from_xml_path(path.as_posix())
+    model = _load_mujoco_model(path)
     arm_joints = detect_arm_joints(model, expected_dof=expected_dof)
     return RobotModel(
         name=path.stem,
@@ -282,7 +350,7 @@ def play_trajectory(
     """Play a trajectory on top of a MuJoCo model."""
 
     path = pathlib.Path(model_path)
-    model = mj.MjModel.from_xml_path(path.as_posix())
+    model = _load_mujoco_model(path)
     data = mj.MjData(model)
     traj = Trajectory.coerce(trajectory)
     arm_joints = detect_arm_joints(model, expected_dof=traj.dof)

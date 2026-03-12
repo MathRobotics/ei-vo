@@ -13,7 +13,7 @@ from typing import Mapping
 import numpy as np
 
 from ..core import Trajectory
-from .render_mj import CameraSettings, PlaybackConfig, detect_arm_joints
+from .render_mj import CameraSettings, PlaybackConfig, _load_mujoco_model, detect_arm_joints
 
 
 def _import_meshcat():
@@ -223,8 +223,29 @@ def _geom_rgba(model: mj.MjModel, geom_id: int) -> np.ndarray:
     return np.array([0.7, 0.7, 0.7, 1.0], dtype=float)
 
 
+def _mesh_geometry(model: mj.MjModel, meshcat_geometry, geom_id: int):
+    data_id = int(model.geom_dataid[geom_id]) if hasattr(model, "geom_dataid") else -1
+    if data_id < 0:
+        return None
+
+    triangular_mesh = getattr(meshcat_geometry, "TriangularMeshGeometry", None)
+    if triangular_mesh is None:
+        return None
+
+    vert_start = int(model.mesh_vertadr[data_id])
+    vert_count = int(model.mesh_vertnum[data_id])
+    face_start = int(model.mesh_faceadr[data_id])
+    face_count = int(model.mesh_facenum[data_id])
+    vertices = np.asarray(model.mesh_vert[vert_start : vert_start + vert_count], dtype=float)
+    faces = np.asarray(model.mesh_face[face_start : face_start + face_count], dtype=np.int32)
+    if hasattr(model, "mesh_scale"):
+        vertices = vertices * np.asarray(model.mesh_scale[data_id], dtype=float)
+    return triangular_mesh(vertices, faces)
+
+
 def _set_geom_object(
     visualizer,
+    model: mj.MjModel,
     meshcat_geometry,
     mj,
     geom_type: int,
@@ -234,6 +255,13 @@ def _set_geom_object(
 ) -> bool:
     geom_node = visualizer[f"geoms/{geom_id}"]
     material = _rgba_to_material(meshcat_geometry, rgba)
+
+    if geom_type == getattr(mj.mjtGeom, "mjGEOM_MESH", -1):
+        mesh = _mesh_geometry(model, meshcat_geometry, geom_id)
+        if mesh is None:
+            return False
+        geom_node["shape"].set_object(mesh, material)
+        return True
 
     if geom_type == getattr(mj.mjtGeom, "mjGEOM_SPHERE", -1):
         geom_node["shape"].set_object(meshcat_geometry.Sphere(float(geom_size[0])), material)
@@ -286,7 +314,7 @@ def _create_scene(visualizer, model: mj.MjModel) -> tuple[int, ...]:
         geom_type = int(model.geom_type[geom_id])
         geom_size = np.asarray(model.geom_size[geom_id], dtype=float)
         rgba = _geom_rgba(model, geom_id)
-        if _set_geom_object(visualizer, meshcat_geometry, mj, geom_type, geom_id, geom_size, rgba):
+        if _set_geom_object(visualizer, model, meshcat_geometry, mj, geom_type, geom_id, geom_size, rgba):
             supported_geom_ids.append(geom_id)
     return tuple(supported_geom_ids)
 
@@ -408,7 +436,31 @@ _CAPTURE_QUERY_SCRIPT = """
 """.strip()
 
 
+_CAPTURE_BOOTSTRAP_VIEWER_LINE = 'var viewer = new MeshCat.Viewer(document.getElementById("meshcat-pane"));'
+
+
+_CAPTURE_BOOTSTRAP_SCRIPT = """
+(function () {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has("meshcat_time")) {
+    return;
+  }
+  const originalSetAnimation = viewer.set_animation.bind(viewer);
+  viewer.set_animation = function (animations, options) {
+    const captureOptions = Object.assign({}, options || {}, {play: false});
+    return originalSetAnimation(animations, captureOptions);
+  };
+})();
+""".strip()
+
+
 def _build_capture_html_source(html_source: str) -> str:
+    if _CAPTURE_BOOTSTRAP_VIEWER_LINE in html_source:
+        html_source = html_source.replace(
+            _CAPTURE_BOOTSTRAP_VIEWER_LINE,
+            f"{_CAPTURE_BOOTSTRAP_VIEWER_LINE}\n{_CAPTURE_BOOTSTRAP_SCRIPT}",
+            1,
+        )
     marker = "</body>"
     if marker in html_source:
         return html_source.replace(marker, f"{_CAPTURE_QUERY_SCRIPT}\n{marker}", 1)
@@ -435,7 +487,7 @@ def _capture_html_frame(
         "--no-default-browser-check",
         "--allow-file-access-from-files",
         f"--window-size={width},{height}",
-        "--virtual-time-budget=1000",
+        "--virtual-time-budget=5000",
         f"--screenshot={screenshot_path.as_posix()}",
         html_url,
     ]
@@ -595,7 +647,7 @@ def _play_with_mujoco(
     mj = _import_mujoco()
     meshcat = _import_meshcat()
 
-    model = mj.MjModel.from_xml_path(path.as_posix())
+    model = _load_mujoco_model(path)
     data = mj.MjData(model)
     arm_joints = detect_arm_joints(model, expected_dof=trajectory.dof)
     positions = _clip_positions_to_limits(trajectory.q, arm_joints.limits)

@@ -195,6 +195,11 @@ def _install_dummy_meshcat(monkeypatch):
             self.height = height
             self.radius = radius
 
+    class TriangularMeshGeometry:
+        def __init__(self, vertices, faces):
+            self.vertices = np.asarray(vertices)
+            self.faces = np.asarray(faces)
+
     class MeshPhongMaterial:
         def __init__(self, color, opacity=1.0, transparent=False):
             self.color = color
@@ -205,6 +210,7 @@ def _install_dummy_meshcat(monkeypatch):
     geometry.Sphere = Sphere
     geometry.Box = Box
     geometry.Cylinder = Cylinder
+    geometry.TriangularMeshGeometry = TriangularMeshGeometry
     geometry.MeshPhongMaterial = MeshPhongMaterial
 
     animation = types.ModuleType("meshcat.animation")
@@ -567,7 +573,12 @@ def test_meshcat_renderer_renders_video_from_html(monkeypatch, tmp_path):
     sys.modules.pop("ei_vo.render.render_meshcat", None)
     meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
     html_path = tmp_path / "scene.html"
-    html_path.write_text("<html><body><div id='meshcat-pane'></div></body></html>", encoding="utf-8")
+    html_path.write_text(
+        """<html><body><div id="meshcat-pane"></div><script>
+var viewer = new MeshCat.Viewer(document.getElementById("meshcat-pane"));
+</script></body></html>""",
+        encoding="utf-8",
+    )
     video_path = tmp_path / "scene.mp4"
     captured = {"calls": [], "frames": []}
 
@@ -598,6 +609,7 @@ def test_meshcat_renderer_renders_video_from_html(monkeypatch, tmp_path):
                 "size": size,
             }
         )
+        captured.setdefault("capture_html_sources", []).append(html_path_arg.read_text(encoding="utf-8"))
         screenshot_path.write_bytes(b"png")
 
     monkeypatch.setattr(meshcat_renderer, "_import_imageio", lambda: imageio_v2)
@@ -617,6 +629,9 @@ def test_meshcat_renderer_renders_video_from_html(monkeypatch, tmp_path):
     assert captured["fps"] == 20.0
     assert [call["time_seconds"] for call in captured["calls"]] == pytest.approx([0.0, 0.05, 0.1])
     assert all(call["size"] == (320, 240) for call in captured["calls"])
+    assert all(call["html_path"] != html_path for call in captured["calls"])
+    assert all("const captureOptions = Object.assign({}, options || {}, {play: false});" in source for source in captured["capture_html_sources"])
+    assert all("viewer.animator.seek" in source for source in captured["capture_html_sources"])
     assert len(captured["frames"]) == 3
     assert all(frame.dtype == np.uint8 for frame in captured["frames"])
     assert all(frame.shape == (2, 3, 3) for frame in captured["frames"])
@@ -666,6 +681,32 @@ def test_meshcat_material_uses_builtin_bool(monkeypatch, install_dummy_mujoco):
     assert isinstance(material.transparent, bool)
     assert material.transparent is True
     assert isinstance(material.opacity, float)
+
+
+def test_meshcat_mesh_geometry_uses_mujoco_mesh_buffers(monkeypatch, install_dummy_mujoco):
+    install_dummy_mujoco()
+    _install_dummy_meshcat(monkeypatch)
+    sys.modules.pop("ei_vo.render.render_meshcat", None)
+    meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
+    geometry = sys.modules["meshcat.geometry"]
+
+    model = types.SimpleNamespace(
+        geom_dataid=np.array([0]),
+        mesh_vertadr=np.array([0]),
+        mesh_vertnum=np.array([3]),
+        mesh_faceadr=np.array([0]),
+        mesh_facenum=np.array([1]),
+        mesh_vert=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+        mesh_face=np.array([[0, 1, 2]]),
+        mesh_scale=np.array([[2.0, 3.0, 4.0]]),
+    )
+
+    mesh = meshcat_renderer._mesh_geometry(model, geometry, 0)
+
+    assert mesh.vertices.shape == (3, 3)
+    np.testing.assert_allclose(mesh.vertices[1], [2.0, 0.0, 0.0])
+    np.testing.assert_allclose(mesh.vertices[2], [0.0, 3.0, 0.0])
+    np.testing.assert_array_equal(mesh.faces, [[0, 1, 2]])
 
 
 def test_generic_play_dispatches_meshcat_renderer(monkeypatch, install_dummy_mujoco):

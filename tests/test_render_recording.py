@@ -52,6 +52,64 @@ def test_load_robot_model_returns_robot_metadata(install_dummy_mujoco):
     assert robot.dof == 3
 
 
+def test_load_robot_model_stages_nested_urdf_meshes(tmp_path, install_dummy_mujoco, monkeypatch):
+    install_dummy_mujoco(joint_names=["joint1"])
+    render_mj = _import_render_module()
+
+    mesh_path = tmp_path / "meshes" / "collision" / "link0.stl"
+    mesh_path.parent.mkdir(parents=True)
+    mesh_path.write_text("solid link0\nendsolid link0\n", encoding="utf-8")
+
+    urdf_path = tmp_path / "robot.urdf"
+    urdf_path.write_text(
+        """<?xml version="1.0"?>
+<robot name="robot">
+  <link name="base"/>
+  <link name="link1">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1"/>
+      <inertia ixx="1" ixy="0" ixz="0" iyy="1" iyz="0" izz="1"/>
+    </inertial>
+    <collision>
+      <geometry>
+        <mesh filename="./meshes/collision/link0.stl"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint1" type="revolute">
+    <parent link="base"/>
+    <child link="link1"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+</robot>
+""",
+        encoding="utf-8",
+    )
+
+    captured = {}
+    original_from_xml_path = render_mj.mj.MjModel.from_xml_path
+
+    def fake_from_xml_path(path):
+        staged_path = pathlib.Path(path)
+        captured["path"] = staged_path
+        captured["urdf"] = staged_path.read_text(encoding="utf-8")
+        captured["assets"] = {item.name for item in staged_path.parent.iterdir()}
+        return original_from_xml_path(path)
+
+    monkeypatch.setattr(render_mj.mj.MjModel, "from_xml_path", staticmethod(fake_from_xml_path))
+
+    robot = render_mj.load_robot_model(urdf_path)
+
+    assert robot.dof == 1
+    assert captured["path"] != urdf_path
+    assert captured["path"].name == urdf_path.name
+    assert 'filename="asset_0000.stl"' in captured["urdf"]
+    assert "asset_0000.stl" in captured["assets"]
+
+
 def test_init_recording_defaults(tmp_path, install_dummy_mujoco, monkeypatch):
     install_dummy_mujoco()
     render_mj = _import_render_module()
