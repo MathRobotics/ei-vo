@@ -57,6 +57,19 @@ def _import_pinocchio_visualizer():
     return pin, MeshcatVisualizer
 
 
+def _pinocchio_package_dirs(model_path: pathlib.Path) -> list[str]:
+    model_dir = model_path.expanduser().resolve(strict=False).parent
+    package_dirs: list[str] = []
+    seen: set[str] = set()
+    for candidate in (model_dir, *model_dir.parents):
+        candidate_str = candidate.as_posix()
+        if candidate_str in seen:
+            continue
+        seen.add(candidate_str)
+        package_dirs.append(candidate_str)
+    return package_dirs
+
+
 def _clip_positions_to_limits(q: np.ndarray, limits: np.ndarray) -> np.ndarray:
     positions = np.asarray(q, dtype=float).copy()
     if positions.ndim != 2:
@@ -703,7 +716,11 @@ def _play_with_pinocchio(
     meshcat = _import_meshcat()
     pin, MeshcatVisualizer = _import_pinocchio_visualizer()
 
-    model, collision_model, visual_model = pin.buildModelsFromUrdf(path.as_posix())
+    resolved_path = path.expanduser().resolve(strict=False)
+    model, collision_model, visual_model = pin.buildModelsFromUrdf(
+        resolved_path.as_posix(),
+        package_dirs=_pinocchio_package_dirs(resolved_path),
+    )
     model_dof = int(getattr(model, "nq"))
     if model_dof != trajectory.dof:
         raise ValueError(

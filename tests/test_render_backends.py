@@ -228,7 +228,7 @@ def _install_dummy_meshcat(monkeypatch):
 
 
 def _install_dummy_pinocchio_meshcat(monkeypatch):
-    captured = {"loaded_roots": [], "displayed": []}
+    captured = {"build_calls": [], "loaded_roots": [], "displayed": []}
 
     class DummyModel:
         nq = 3
@@ -283,8 +283,12 @@ def _install_dummy_pinocchio_meshcat(monkeypatch):
             transform[0, 3] = row.sum()
             self.viewer[f"{self.viewerVisualGroupName}/ee"].set_transform(transform)
 
+    def build_models_from_urdf(path, **kwargs):
+        captured["build_calls"].append({"path": path, "kwargs": kwargs})
+        return DummyModel(), DummyGeometryModel(), DummyGeometryModel()
+
     pinocchio = types.ModuleType("pinocchio")
-    pinocchio.buildModelsFromUrdf = lambda path: (DummyModel(), DummyGeometryModel(), DummyGeometryModel())
+    pinocchio.buildModelsFromUrdf = build_models_from_urdf
 
     visualize = types.ModuleType("pinocchio.visualize")
     visualize.MeshcatVisualizer = DummyMeshcatVisualizer
@@ -525,6 +529,16 @@ def test_meshcat_renderer_uses_pinocchio_for_urdf(monkeypatch, tmp_path):
     )
 
     assert captured["opened"] == 1
+    expected_package_dirs = [
+        candidate.as_posix()
+        for candidate in (model_path.parent.resolve(), *model_path.parent.resolve().parents)
+    ]
+    assert pinocchio_captured["build_calls"] == [
+        {
+            "path": model_path.resolve().as_posix(),
+            "kwargs": {"package_dirs": expected_package_dirs},
+        }
+    ]
     assert pinocchio_captured["loaded_roots"] == ["pinocchio"]
     np.testing.assert_allclose(pinocchio_captured["displayed"][0], [0.5, -0.25, 1.0])
     np.testing.assert_allclose(pinocchio_captured["displayed"][1], [-0.5, 0.25, -1.0])
