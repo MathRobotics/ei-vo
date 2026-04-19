@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from ..config import CameraSettings, PlaybackConfig, RecordingConfig
 from .play import play
 from .registry import available_renderers, get_renderer, register_renderer
 
 __all__ = [
+    "CameraSettings",
+    "PlaybackConfig",
+    "RecordingConfig",
     "available_renderers",
     "get_renderer",
     "play",
@@ -16,9 +20,6 @@ __all__ = [
 def __getattr__(name: str):
     if name in {
         "ArmJointMap",
-        "CameraSettings",
-        "PlaybackConfig",
-        "RecordingConfig",
         "clamp_to_limits",
         "detect_arm_joint_qaddr",
         "detect_arm_joints",
@@ -27,9 +28,6 @@ def __getattr__(name: str):
     }:
         from .render_mj import (
             ArmJointMap,
-            CameraSettings,
-            PlaybackConfig,
-            RecordingConfig,
             clamp_to_limits,
             detect_arm_joint_qaddr,
             detect_arm_joints,
@@ -39,9 +37,6 @@ def __getattr__(name: str):
 
         return {
             "ArmJointMap": ArmJointMap,
-            "CameraSettings": CameraSettings,
-            "PlaybackConfig": PlaybackConfig,
-            "RecordingConfig": RecordingConfig,
             "clamp_to_limits": clamp_to_limits,
             "detect_arm_joint_qaddr": detect_arm_joint_qaddr,
             "detect_arm_joints": detect_arm_joints,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .backends import KinematicsSpec, RenderSpec
+from .config import CameraSettings, PlaybackConfig, RecordingConfig
 from .core.angles import load_angles
 from .core.core import RobotModel, Trajectory
 from .core.interpolation import quintic
@@ -13,6 +14,7 @@ from .kinematics.registry import (
     get_kinematics_backend,
     register_kinematics_backend,
 )
+from .modeling import ModelSource, load_robot_model
 from .programs import (
     available_programs,
     build_sine_trajectory,
@@ -67,19 +69,6 @@ def forward_kinematics(backend, *args, **kwargs):
         resolved_kwargs.update(kwargs)
         return _forward_kinematics(backend.backend, resolved_model_path, traj, **resolved_kwargs)
     return _forward_kinematics(backend, *args, **kwargs)
-
-
-def __getattr__(name: str):
-    if name in {"CameraSettings", "PlaybackConfig", "RecordingConfig"}:
-        from .render.render_mj import CameraSettings, PlaybackConfig, RecordingConfig
-
-        return {
-            "CameraSettings": CameraSettings,
-            "PlaybackConfig": PlaybackConfig,
-            "RecordingConfig": RecordingConfig,
-        }[name]
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
 __all__ = [
     "CameraSettings",
     "KinematicsSpec",
@@ -100,6 +89,8 @@ __all__ = [
     "Trajectory",
     "available_kinematics_backends",
     "available_renderers",
+    "ModelSource",
+    "load_robot_model",
     "play",
     "play_trajectory",
     "quintic",

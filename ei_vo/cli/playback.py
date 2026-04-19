@@ -13,6 +13,7 @@ from ..backends import KinematicsSpec
 from ..core import Trajectory, resolve_record_destination
 from ..kinematics import available_kinematics_backends
 from ..mjpython import maybe_relaunch_with_mjpython
+from ..modeling import load_robot_model
 from ..programs import available_programs, normalize_program_mode
 from ..render import available_renderers
 from ..workflows import trajectory_from_file, trajectory_from_program
@@ -102,12 +103,43 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Recording width and height in pixels for video-capable renderers",
     )
+    parser.add_argument(
+        "--recordFramesDir",
+        default=None,
+        help="Directory root used to persist numbered recording frames alongside video export",
+    )
+    parser.add_argument(
+        "--blenderEngine",
+        choices=("workbench", "eevee", "cycles"),
+        default=None,
+        help="Override the Blender render engine when using --renderer blender",
+    )
+    parser.add_argument(
+        "--blenderSamples",
+        type=int,
+        default=None,
+        help="Override the Blender sample count when using --renderer blender",
+    )
+    parser.add_argument(
+        "--blenderFrame",
+        type=int,
+        default=None,
+        help="When --record points to an image file, render this Blender trajectory frame instead of the last frame",
+    )
+    parser.add_argument(
+        "--blenderNoSceneCache",
+        action="store_true",
+        help="Disable Blender scene cache reuse and rebuild the URDF scene from scratch",
+    )
+    parser.add_argument(
+        "--blenderDebugLinks",
+        default=None,
+        help="When --record points to an image file, write per-link Blender debug data as JSON",
+    )
     return parser
 
 
 def _load_model_dof(model_path: str) -> int:
-    from ..render.render_mj import load_robot_model
-
     return load_robot_model(model_path).dof
 
 
@@ -124,7 +156,7 @@ def _resolve_model_dof(args: argparse.Namespace, *, trajectory_dof: int | None) 
             raise FileNotFoundError(args.model)
         return _load_model_dof(args.model)
 
-    if args.renderer in {"matplotlib", "mujoco", "meshcat"}:
+    if args.renderer in {"blender", "matplotlib", "mujoco", "meshcat"}:
         raise ValueError(f"--model is required when using the {args.renderer} renderer.")
 
     if trajectory_dof is not None:
@@ -154,9 +186,10 @@ def build_trajectory(args: argparse.Namespace) -> Trajectory:
 
 def _resolve_recording(args: argparse.Namespace) -> tuple[str | None, str | None]:
     artifact_map = {
+        "blender": ("blender_", ".mp4"),
         "matplotlib": ("matplotlib_", ".png"),
         "mujoco": ("playback_", ".mp4"),
-        "meshcat": ("meshcat_", ".mp4"),
+        "meshcat": ("meshcat_", ".html"),
     }
     artifact_prefix, artifact_suffix = artifact_map[args.renderer]
     return resolve_record_destination(
@@ -206,7 +239,7 @@ def _build_camera(args: argparse.Namespace) -> dict[str, object] | None:
 
 
 def _build_play_kwargs(args: argparse.Namespace, *, record_path: str | None) -> dict[str, object]:
-    return {
+    kwargs: dict[str, object] = {
         "slow": args.slow,
         "hz": args.hz,
         "camera": _build_camera(args),
@@ -214,9 +247,22 @@ def _build_play_kwargs(args: argparse.Namespace, *, record_path: str | None) -> 
         "record_path": record_path,
         "record_fps": args.recordFps,
         "record_size": tuple(args.recordSize) if args.recordSize is not None else None,
+        "record_frames_dir": args.recordFramesDir,
         "renderer": args.renderer,
         "kinematics": _build_kinematics_spec(args),
     }
+    if args.renderer == "blender":
+        if args.blenderEngine is not None:
+            kwargs["engine"] = args.blenderEngine
+        if args.blenderSamples is not None:
+            kwargs["samples"] = args.blenderSamples
+        if args.blenderFrame is not None:
+            kwargs["image_frame_index"] = args.blenderFrame
+        if args.blenderNoSceneCache:
+            kwargs["scene_cache"] = False
+        if args.blenderDebugLinks is not None:
+            kwargs["debug_links_path"] = args.blenderDebugLinks
+    return kwargs
 
 
 def main(argv: Sequence[str] | None = None) -> int:

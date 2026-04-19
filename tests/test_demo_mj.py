@@ -284,6 +284,7 @@ def test_cli_main_builds_program_and_calls_play(monkeypatch, install_dummy_mujoc
     assert calls["kwargs"]["kinematics"].base_link == "base"
     assert calls["kwargs"]["kinematics"].end_link == "ee"
     assert calls["kwargs"]["record_path"] is None
+    assert calls["kwargs"]["record_frames_dir"] is None
     assert calls["kwargs"]["camera"] is None
 
 
@@ -335,7 +336,7 @@ def test_cli_main_passes_camera_settings(monkeypatch):
     }
 
 
-def test_cli_meshcat_record_defaults_to_mp4(monkeypatch, tmp_path: pathlib.Path):
+def test_cli_meshcat_record_defaults_to_html(monkeypatch, tmp_path: pathlib.Path):
     cli = importlib.import_module("ei_vo.cli.playback")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("ei_vo.core.recording.time.strftime", lambda fmt: "20240102-030405")
@@ -344,8 +345,156 @@ def test_cli_meshcat_record_defaults_to_mp4(monkeypatch, tmp_path: pathlib.Path)
     path, auto_dir = cli._resolve_recording(args)
 
     expected_dir = tmp_path / "recordings"
-    assert path == (expected_dir / "meshcat_20240102-030405.mp4").as_posix()
+    assert path == (expected_dir / "meshcat_20240102-030405.html").as_posix()
     assert auto_dir == expected_dir.as_posix()
+
+
+def test_cli_main_passes_record_frames_dir(monkeypatch):
+    cli = importlib.import_module("ei_vo.cli.playback")
+    calls = {}
+
+    monkeypatch.setattr(cli.os.path, "isfile", lambda path: True)
+    monkeypatch.setattr(cli, "_load_model_dof", lambda path: 3)
+    monkeypatch.setattr(cli, "maybe_relaunch_with_mjpython", lambda *args, **kwargs: None)
+
+    def fake_play(model_path, trajectory, **kwargs):
+        calls["model_path"] = model_path
+        calls["trajectory"] = trajectory
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(cli, "play", fake_play)
+
+    exit_code = cli.main(
+        [
+            "--renderer",
+            "meshcat",
+            "--model",
+            "robot.urdf",
+            "--program",
+            "waypoints",
+            "--record",
+            "recordings/scene.mp4",
+            "--recordFramesDir",
+            "recordings/frames",
+        ]
+    )
+
+    assert exit_code == 0
+    assert calls["kwargs"]["record_path"] == "recordings/scene.mp4"
+    assert calls["kwargs"]["record_frames_dir"] == "recordings/frames"
+
+
+def test_cli_blender_passes_speed_overrides(monkeypatch):
+    cli = importlib.import_module("ei_vo.cli.playback")
+    calls = {}
+
+    monkeypatch.setattr(cli.os.path, "isfile", lambda path: True)
+    monkeypatch.setattr(cli, "_load_model_dof", lambda path: 3)
+    monkeypatch.setattr(cli, "maybe_relaunch_with_mjpython", lambda *args, **kwargs: None)
+
+    def fake_play(model_path, trajectory, **kwargs):
+        calls["model_path"] = model_path
+        calls["trajectory"] = trajectory
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(cli, "play", fake_play)
+
+    exit_code = cli.main(
+        [
+            "--renderer",
+            "blender",
+            "--model",
+            "robot.urdf",
+            "--program",
+            "waypoints",
+            "--record",
+            "recordings/scene.mp4",
+            "--recordFps",
+            "24",
+            "--blenderEngine",
+            "workbench",
+            "--blenderSamples",
+            "1",
+        ]
+    )
+
+    assert exit_code == 0
+    assert calls["kwargs"]["renderer"] == "blender"
+    assert calls["kwargs"]["record_fps"] == 24.0
+    assert calls["kwargs"]["engine"] == "workbench"
+    assert calls["kwargs"]["samples"] == 1
+
+
+def test_cli_blender_passes_image_frame_override(monkeypatch):
+    cli = importlib.import_module("ei_vo.cli.playback")
+    calls = {}
+
+    monkeypatch.setattr(cli.os.path, "isfile", lambda path: True)
+    monkeypatch.setattr(cli, "_load_model_dof", lambda path: 3)
+    monkeypatch.setattr(cli, "maybe_relaunch_with_mjpython", lambda *args, **kwargs: None)
+
+    def fake_play(model_path, trajectory, **kwargs):
+        calls["model_path"] = model_path
+        calls["trajectory"] = trajectory
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(cli, "play", fake_play)
+
+    exit_code = cli.main(
+        [
+            "--renderer",
+            "blender",
+            "--model",
+            "robot.urdf",
+            "--program",
+            "waypoints",
+            "--record",
+            "recordings/frame.png",
+            "--blenderFrame",
+            "360",
+        ]
+    )
+
+    assert exit_code == 0
+    assert calls["kwargs"]["renderer"] == "blender"
+    assert calls["kwargs"]["image_frame_index"] == 360
+
+
+def test_cli_blender_passes_scene_cache_and_debug_overrides(monkeypatch):
+    cli = importlib.import_module("ei_vo.cli.playback")
+    calls = {}
+
+    monkeypatch.setattr(cli.os.path, "isfile", lambda path: True)
+    monkeypatch.setattr(cli, "_load_model_dof", lambda path: 3)
+    monkeypatch.setattr(cli, "maybe_relaunch_with_mjpython", lambda *args, **kwargs: None)
+
+    def fake_play(model_path, trajectory, **kwargs):
+        calls["model_path"] = model_path
+        calls["trajectory"] = trajectory
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(cli, "play", fake_play)
+
+    exit_code = cli.main(
+        [
+            "--renderer",
+            "blender",
+            "--model",
+            "robot.urdf",
+            "--program",
+            "waypoints",
+            "--record",
+            "recordings/frame.png",
+            "--blenderNoSceneCache",
+            "--blenderDebugLinks",
+            "recordings/links.json",
+        ]
+    )
+
+    assert exit_code == 0
+    assert calls["kwargs"]["renderer"] == "blender"
+    assert calls["kwargs"]["scene_cache"] is False
+    assert calls["kwargs"]["debug_links_path"] == "recordings/links.json"
 
 
 def test_cli_mujoco_renderer_relaunches_via_helper(monkeypatch):

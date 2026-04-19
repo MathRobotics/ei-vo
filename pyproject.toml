@@ -15,39 +15,33 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-    "matplotlib>=3.10.8",
-    "meshcat>=0.3.2",
-    "mujoco>=3.4.0",
     "numpy>=2.0.2",
+    "matplotlib>=3.10.8",
+    "mujoco>=3.4.0",
     "pin>=3.7.0",
 ]
 
 [project.optional-dependencies]
+all = [
+    "meshcat>=0.3.2",
+    "literobo",
+]
 kinematics = [
     "literobo",
-    "pin",
 ]
 literobo = [
     "literobo",
 ]
 meshcat = [
-    "meshcat",
-]
-pinocchio = [
-    "pin",
+    "meshcat>=0.3.2",
 ]
 plot = [
-    "matplotlib",
 ]
 recording = [
-    "imageio[ffmpeg]",
 ]
 dev = [
-    "imageio[ffmpeg]",
     "literobo",
-    "meshcat",
-    "matplotlib",
-    "pin",
+    "meshcat>=0.3.2",
     "pytest",
 ]
 

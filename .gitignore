@@ -7,3 +7,4 @@ recordings/
 examples/joint_angle_log_*.csv
 examples/trajectory.csv
 uv.lock
+tmp/

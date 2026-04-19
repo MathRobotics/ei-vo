@@ -1,78 +1,100 @@
 # ei-vo
 
-`ei-vo` is a small trajectory rendering and kinematics library with pluggable
-backends. It ships with MuJoCo, MeshCat, Matplotlib, Pinocchio, and LiteRobo
-integration points.
+`ei-vo` is a small trajectory rendering and kinematics library built around a
+shared URDF workflow. `pinocchio`, `matplotlib`, and `mujoco` are part of the
+standard install, and this README assumes `pinocchio` as the default
+kinematics backend.
 
 ## Setup
 
 ```bash
-pip install -e .
-pip install -e '.[recording]'  # if you use --record for MP4 export
-pip install -e '.[dev]'        # if you are developing ei-vo itself
+uv sync
+# add as needed: --extra meshcat --extra recording
 ```
 
-- `mujoco` backend: requires MuJoCo on the host system
-- `meshcat` backend: requires `meshcat`; URDF playback uses Pinocchio's visual model
-- `matplotlib` backend: requires `matplotlib`, `mujoco`, and a URDF model
-- `pinocchio` kinematics backend: requires the `pin` package
-- `literobo` kinematics backend: requires `literobo` and a URDF model
-- MP4 recording with MuJoCo or MeshCat additionally uses `imageio[ffmpeg]`
-- MeshCat video export additionally requires a Chromium-based browser such as
-  `google-chrome` or `chromium`
-- On macOS, MuJoCo's passive viewer requires `mjpython`. The CLI relaunches
-  `--renderer mujoco` runs automatically via `mjpython`; direct Python scripts
-  that use the MuJoCo renderer should be started with `mjpython`.
+## Quick Start
 
-## Layout
+This README uses `matplotlib` as the baseline renderer because it is the
+simplest way to understand the workflow.
 
-- `ei_vo.core`: validated trajectory/model types and file-loading helpers
-- `ei_vo.programs`: built-in waypoint and sine trajectory programs
-- `ei_vo.demo`: compatibility aliases for the legacy demo naming
-- `ei_vo.backends`: renderer and kinematics selection helpers
-- `ei_vo.workflows`: high-level helpers for copy-paste friendly examples
-- `ei_vo.kinematics`: pluggable forward-kinematics backends
-- `ei_vo.render.registry`: lazy backend registration and dispatch
-- `ei_vo.render.render_mj`: MuJoCo playback, recording, and model inspection
-- `ei_vo.render.render_meshcat`: browser-based 3D playback through MeshCat
-- `ei_vo.render.render_matplotlib`: Matplotlib-based 3D playback for MuJoCo models
-- `ei_vo.cli.playback`: reusable CLI entrypoint
-- `ei_vo.cli.demo`: compatibility alias for the legacy module name
-- `ei_vo.cli.demo_mj`: compatibility alias for the legacy module name
-- `examples/demo_mj.py`: thin compatibility wrapper around the CLI
-- `examples/switch_renderer.py`: single Python example using the high-level workflow API
-
-## CLI usage
-
-The package exposes a single CLI with selectable renderers and optional backend
-wiring:
+Play a built-in trajectory:
 
 ```bash
-ei-vo-play --model examples/models/three_dof_arm.urdf --program waypoints --hz 240
+uv run ei-vo-play \
+  --renderer matplotlib \
+  --model examples/models/three_dof_arm.urdf \
+  --program waypoints \
+  --hz 120
 ```
 
-This uses `meshcat` for rendering, Pinocchio for URDF visual playback, and
-`pinocchio` for the optional kinematics backend by default.
-
-Matplotlib 3D playback using the same URDF model:
+Replay a trajectory file:
 
 ```bash
-ei-vo-play --renderer matplotlib --model examples/models/three_dof_arm.urdf --hz 120
-```
-
-Browser-based 3D playback through MeshCat:
-
-```bash
-ei-vo-play \
-  --renderer meshcat \
+uv run ei-vo-play \
+  --renderer matplotlib \
   --model examples/models/three_dof_arm.urdf \
   --trajectries examples/trajectories/three_dof_arm_waypoints.csv
 ```
 
-Attach a backend to the same playback workflow:
+Save the final frame:
 
 ```bash
-ei-vo-play \
+uv run ei-vo-play \
+  --renderer matplotlib \
+  --model examples/models/three_dof_arm.urdf \
+  --program waypoints \
+  --record recordings/link_frame.png
+```
+
+Record the same playback to MP4:
+
+```bash
+uv sync --extra recording
+brew install ffmpeg
+
+uv run ei-vo-play \
+  --renderer matplotlib \
+  --model examples/models/three_dof_arm.urdf \
+  --program waypoints \
+  --record recordings/link_motion.mp4
+```
+
+The same `--model` and trajectory inputs work across the built-in renderers.
+`pinocchio` is the default backend.
+
+## Switch Renderer
+
+In most cases, changing renderer just means changing `--renderer`.
+
+| Renderer | Typical use | Output |
+| --- | --- | --- |
+| `matplotlib` | simplest baseline | live figure, `.png`, `.mp4` |
+| `meshcat` | browser playback | live viewer, standalone `.html` |
+| `mujoco` | interactive desktop viewer | live viewer, `.mp4` |
+| `blender` | offline rendering | `.png`, `.mp4` |
+
+MeshCat:
+
+```bash
+uv run ei-vo-play --renderer meshcat --model examples/models/three_dof_arm.urdf --program waypoints
+```
+
+MuJoCo:
+
+```bash
+uv run ei-vo-play --renderer mujoco --model examples/models/three_dof_arm.urdf --program waypoints
+```
+
+Blender:
+
+```bash
+uv run ei-vo-play --renderer blender --model examples/models/three_dof_arm.urdf --program waypoints --record recordings/blender.mp4
+```
+
+If you need a kinematics backend in the same workflow:
+
+```bash
+uv run ei-vo-play \
   --renderer meshcat \
   --model examples/models/three_dof_arm.urdf \
   --backend literobo \
@@ -80,135 +102,75 @@ ei-vo-play \
   --end-link ee
 ```
 
-The bundled `mujoco`, `meshcat`, and `matplotlib` renderers all read the same
-URDF passed via `--model`. MeshCat displays URDF `<visual>` geometry through
-Pinocchio, while `--backend` selects the workflow's kinematics backend.
-XML/MJCF input is no longer supported in the CLI.
+MeshCat uses Pinocchio to display URDF `<visual>` geometry. XML/MJCF input is
+not supported in the CLI.
 
-Compatibility aliases still work:
+## Recording Notes
 
-```bash
-ei-vo-demo --renderer mujoco --model examples/models/three_dof_arm.urdf --demo wp
-python examples/demo_mj.py --renderer mujoco --model examples/models/three_dof_arm.urdf --demo wp
-```
+- `matplotlib`: `.png` or `.mp4`
+- `mujoco`: `.mp4`
+- `meshcat`: standalone `.html`
+- `blender`: `.png` or `.mp4`, and `--record` is required
+- `--recordFramesDir` is supported for Blender, MuJoCo, and Matplotlib video export
 
-On macOS, these MuJoCo CLI commands are relaunched through `mjpython`
-automatically.
-
-Replay an existing trajectory file:
+MeshCat HTML export:
 
 ```bash
-ei-vo-play \
-  --model examples/models/three_dof_arm.urdf \
-  --trajectries examples/trajectories/three_dof_arm_waypoints.csv
-```
-
-Set a fixed camera for MuJoCo, MeshCat, or Matplotlib playback / recording:
-
-```bash
-ei-vo-play \
-  --renderer mujoco \
-  --model examples/models/three_dof_arm.urdf \
-  --cameraDistance 3.5 \
-  --cameraAzimuth 120 \
-  --cameraElevation -25 \
-  --cameraLookat 0.0 0.0 0.4
-```
-
-Record MuJoCo playback to MP4:
-
-```bash
-pip install -e '.[recording]'
-
-ei-vo-play \
-  --model examples/models/three_dof_arm.urdf \
-  --record recordings/playback.mp4 \
-  --recordFps 60 \
-  --recordSize 1920 1080
-```
-
-Save the final Matplotlib frame:
-
-```bash
-ei-vo-play \
-  --renderer matplotlib \
-  --model examples/models/three_dof_arm.urdf \
-  --trajectries examples/trajectories/three_dof_arm_waypoints.csv \
-  --record recordings/link_frame.png
-```
-
-Record MeshCat playback to MP4 and save a standalone HTML sidecar:
-
-```bash
-pip install -e '.[recording]'
-
-ei-vo-play \
+uv run ei-vo-play \
   --renderer meshcat \
   --model examples/models/three_dof_arm.urdf \
   --trajectries examples/trajectories/three_dof_arm_waypoints.csv \
-  --record recordings/scene.mp4
+  --record recordings/scene.html
 ```
 
-## Python usage
+Blender preview render:
+
+```bash
+uv run ei-vo-play \
+  --renderer blender \
+  --model examples/models/three_dof_arm.urdf \
+  --program waypoints \
+  --record recordings/blender_preview.mp4 \
+  --recordFps 24 \
+  --recordSize 960 540 \
+  --blenderEngine workbench \
+  --blenderSamples 1
+```
+
+## Notes
+
+- Base install only depends on `numpy`.
+- URDF metadata such as DOF and joint limits is parsed without MuJoCo.
+- Blender prefers a local `blender` executable on `PATH` or `EI_VO_BLENDER`.
+- Blender can fall back to `bpy`; install it with `uv add bpy`.
+- Video export for Blender, MuJoCo, or Matplotlib needs `ffmpeg` on `PATH` or `EI_VO_FFMPEG`.
+- On macOS, MuJoCo interactive playback requires `mjpython`. The CLI relaunches automatically for `--renderer mujoco`.
+- Blender scene cache defaults to `$TMPDIR/ei_vo_blender_cache`; override with `EI_VO_BLENDER_CACHE_DIR`.
+- MeshCat port ranges can be widened with `EI_VO_MESHCAT_ZMQ_PORT_START`, `EI_VO_MESHCAT_ZMQ_PORT_END`, `EI_VO_MESHCAT_WEB_PORT_START`, and `EI_VO_MESHCAT_WEB_PORT_END`.
+- Input files for `--trajectries` must be shaped `(T, DOF)` and may be CSV, NPY, or JSON.
+
+## Python API
+
+The Python API mirrors the CLI through `render_program`, `render_trajectory`,
+and `trajectory_from_program`.
 
 ```python
 from pathlib import Path
+from ei_vo import RenderSpec, render_program
 
-from ei_vo import (
-    CameraSettings,
-    KinematicsSpec,
-    RenderSpec,
-    render_program,
-    render_trajectory,
-    trajectory_from_program,
-)
-
-ROOT = Path("examples")
-
-trajectory = trajectory_from_program(3, program="sine", hz=120.0, duration=4.0)
-
-render_program(ROOT / "models/three_dof_arm.urdf", program="waypoints", hz=240.0)
 render_program(
-    ROOT / "models/three_dof_arm.urdf",
-    hz=120.0,
-    renderer=RenderSpec("matplotlib", options={"show": False, "title": "Matplotlib 3D Playback"}),
-    record_path="link_frame.png",
-)
-render_program(
-    ROOT / "models/three_dof_arm.urdf",
-    renderer="mujoco",
-    camera=CameraSettings(distance=3.5, azimuth=120.0, elevation=-25.0, lookat=(0.0, 0.0, 0.4)),
-    kinematics=KinematicsSpec(
-        "pinocchio",
-        base_link="base",
-        end_link="ee",
-    ),
-)
-render_trajectory(
-    ROOT / "models/three_dof_arm.urdf",
-    trajectory,
-    renderer=RenderSpec("meshcat"),
-    camera=CameraSettings(distance=3.5, azimuth=120.0, elevation=-25.0, lookat=(0.0, 0.0, 0.4)),
+    Path("examples/models/three_dof_arm.urdf"),
+    program="waypoints",
+    renderer=RenderSpec("matplotlib", options={"show": False}),
+    record_path="recordings/link_frame.png",
 )
 ```
 
-On macOS, scripts that call the Python API with `renderer="mujoco"` should be
-started with `mjpython`.
-
-## Python example
-
-- `python examples/switch_renderer.py`
-- edit `MODEL`, `RENDERER`, and `BACKEND` in `examples/switch_renderer.py`
-- if you switch `RENDERER` to `"mujoco"` on macOS, the script relaunches
-  itself via `mjpython`
-
-## Sample assets
-
-- `examples/models/three_dof_arm.urdf`
-- `examples/trajectories/three_dof_arm_waypoints.csv`
-
-## Tests
+## Compatibility
 
 ```bash
-pytest
+uv run ei-vo-demo --renderer mujoco --model examples/models/three_dof_arm.urdf --demo wp
+uv run python examples/demo_mj.py --renderer mujoco --model examples/models/three_dof_arm.urdf --demo wp
+uv run python examples/switch_renderer.py
+uv run pytest
 ```

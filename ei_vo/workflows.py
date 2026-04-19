@@ -58,7 +58,7 @@ def trajectory_from_program(
 
 
 def _load_render_model_dof(model_path: str | Path) -> int:
-    from .render.render_mj import load_robot_model
+    from .modeling import load_robot_model
 
     return load_robot_model(model_path).dof
 
@@ -132,6 +132,7 @@ def render_program(
     record_path: str | Path | None = None,
     record_fps: float | None = None,
     record_size: tuple[int, int] | None = None,
+    record_frames_dir: str | Path | None = None,
     kinematics: str | KinematicsSpec | None = None,
     **backend_kwargs,
 ) -> Trajectory:
@@ -158,6 +159,7 @@ def render_program(
         record_path=record_path,
         record_fps=record_fps,
         record_size=record_size,
+        record_frames_dir=record_frames_dir,
         renderer=renderer,
         kinematics=kinematics,
         **backend_kwargs,
@@ -178,6 +180,7 @@ def render_angles(
     record_path: str | Path | None = None,
     record_fps: float | None = None,
     record_size: tuple[int, int] | None = None,
+    record_frames_dir: str | Path | None = None,
     kinematics: str | KinematicsSpec | None = None,
     meta: Mapping[str, Any] | None = None,
     **backend_kwargs,
@@ -199,6 +202,7 @@ def render_angles(
         record_path=record_path,
         record_fps=record_fps,
         record_size=record_size,
+        record_frames_dir=record_frames_dir,
         renderer=renderer,
         kinematics=kinematics,
         **backend_kwargs,

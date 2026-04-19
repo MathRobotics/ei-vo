@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional, Tuple
 
 from ..backends import KinematicsSpec, RenderSpec, coerce_render_spec
@@ -18,10 +19,13 @@ def play(
     record_path: Optional[str] = None,
     record_fps: Optional[float] = None,
     record_size: Optional[Tuple[int, int]] = None,
+    record_frames_dir: str | Path | None = None,
     renderer: str | RenderSpec = "mujoco",
     kinematics: str | KinematicsSpec | None = None,
     **backend_kwargs,
 ):
+    if record_frames_dir is not None and record_path is None:
+        raise ValueError("record_frames_dir requires record_path.")
     render_spec = coerce_render_spec(
         renderer,
         options=backend_kwargs,
@@ -38,5 +42,6 @@ def play(
         record_path=record_path,
         record_fps=record_fps,
         record_size=record_size,
+        record_frames_dir=record_frames_dir,
         **render_spec.resolve_kwargs(model_path=model_path),
     )

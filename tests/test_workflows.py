@@ -180,3 +180,20 @@ def test_switch_renderer_example_supports_kinematics_backend(monkeypatch):
     assert calls["kwargs"]["kinematics"].end_link == "ee"
     assert calls["mjpython"][0] == "mujoco"
     assert calls["mjpython"][1][0].endswith("examples/switch_renderer.py")
+
+
+def test_switch_renderer_example_supports_blender(monkeypatch):
+    module = importlib.import_module("examples.switch_renderer")
+    calls = {}
+
+    def fake_render_program(*args, **kwargs):
+        calls["args"] = args
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(module, "render_program", fake_render_program)
+    monkeypatch.setattr(module, "RENDERER", "blender")
+    module.main()
+
+    assert str(calls["args"][0]).endswith("examples/models/three_dof_arm.urdf")
+    assert calls["kwargs"]["renderer"] == "blender"
+    assert str(calls["kwargs"]["record_path"]).endswith("recordings/switch_renderer_blender.mp4")

@@ -3,10 +3,28 @@
 from __future__ import annotations
 
 import pathlib
+import sys
 
 import numpy as np
 
-from ..core import Trajectory
+from ..config import (
+    CameraSettings,
+    PlaybackConfig,
+    RecordingConfig,
+    coerce_camera_settings,
+    coerce_playback_config,
+    normalize_runtime_config,
+    resolve_recording_fps,
+)
+from ..core import FrameSequenceWriter, Trajectory
+from ..modeling import (
+    clip_positions_to_limits as _clip_positions_to_limits,
+    detect_arm_joints,
+    load_mujoco_model as _load_mujoco_model,
+)
+
+_IMAGE_SUFFIXES = {".png", ".pdf", ".svg", ".jpg", ".jpeg"}
+_VIDEO_SUFFIXES = {".mp4", ".gif", ".webm", ".mov"}
 
 
 def _resolve_figsize(
@@ -112,12 +130,10 @@ def _compute_axis_limits(bounds: np.ndarray) -> tuple[tuple[float, float], tuple
 
 
 def _camera_value(camera: object, key: str) -> float | None:
-    if camera is None:
+    settings = coerce_camera_settings(camera)
+    if settings is None:
         return None
-    if isinstance(camera, dict):
-        value = camera.get(key)
-    else:
-        value = getattr(camera, key, None)
+    value = getattr(settings, key, None)
     return None if value is None else float(value)
 
 
@@ -166,52 +182,75 @@ def _draw_frame(axis, *, frame: dict[str, object], title: str, limits, camera: o
     _configure_axis(axis, title=title, limits=limits, camera=camera)
 
 
-def play(
-    model_path: str | pathlib.Path | None,
-    traj,
-    slow: float = 1.0,
-    hz: float = 240.0,
-    camera=None,
-    loop: bool = False,
-    record_path: str | pathlib.Path | None = None,
-    record_fps: float | None = None,
-    record_size: tuple[int, int] | None = None,
-    *,
-    show: bool = True,
-    title: str | None = None,
-    kinematics_backend: str | None = None,
-    kinematics_model_path: str | pathlib.Path | None = None,
-    base_link: str | None = None,
-    end_link: str | None = None,
-):
-    """Render a MuJoCo trajectory with Matplotlib in 3D."""
-
-    del record_fps, kinematics_backend, kinematics_model_path, base_link, end_link
-
-    if model_path is None:
-        raise ValueError("--model is required when using the matplotlib renderer.")
-    if hz <= 0:
-        raise ValueError(f"hz must be positive. Got {hz}.")
-    if slow <= 0:
-        raise ValueError(f"slow must be positive. Got {slow}.")
-    if loop:
-        raise ValueError("The 'matplotlib' renderer does not support loop playback.")
-
+def _import_pyplot(*, force_agg: bool):
     try:
+        import matplotlib
+        if force_agg and hasattr(matplotlib, "use") and "matplotlib.pyplot" not in sys.modules:
+            matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError as exc:
         raise RuntimeError(
             "The 'matplotlib' renderer requires the optional dependency 'matplotlib'."
         ) from exc
+    return plt
+
+
+def _resolve_record_output_path(record_path: str | pathlib.Path) -> tuple[pathlib.Path, str]:
+    output_path = pathlib.Path(record_path)
+    suffix = output_path.suffix.lower()
+    if suffix in _VIDEO_SUFFIXES:
+        return output_path, "video"
+    if suffix in _IMAGE_SUFFIXES:
+        return output_path, "image"
+    return output_path.with_suffix(".png"), "image"
+
+
+def _capture_figure_frame(figure) -> np.ndarray:
+    canvas = getattr(figure, "canvas", None)
+    if canvas is None or not hasattr(canvas, "draw") or not hasattr(canvas, "buffer_rgba"):
+        raise RuntimeError("The active Matplotlib backend does not support offscreen frame capture.")
+
+    canvas.draw()
+    width, height = canvas.get_width_height()
+    frame = np.asarray(canvas.buffer_rgba(), dtype=np.uint8)
+    if frame.shape != (height, width, 4):
+        frame = frame.reshape((height, width, 4))
+    return frame[:, :, :3].copy()
+
+
+def play_trajectory(
+    model_path: str | pathlib.Path | None,
+    trajectory: Trajectory | np.ndarray | list[list[float]] | list[float],
+    *,
+    playback: PlaybackConfig | None = None,
+    camera: CameraSettings | None = None,
+    recording: RecordingConfig | None = None,
+    show: bool = True,
+    title: str | None = None,
+) -> None:
+    """Render a MuJoCo trajectory with Matplotlib in 3D."""
+
+    if model_path is None:
+        raise ValueError("--model is required when using the matplotlib renderer.")
+
+    playback = coerce_playback_config(playback)
+    if playback.loop:
+        raise ValueError("The 'matplotlib' renderer does not support loop playback.")
+
+    pre_record_mode = None
+    if recording is not None:
+        _, pre_record_mode = _resolve_record_output_path(recording.path)
+
+    plt = _import_pyplot(force_agg=pre_record_mode == "video")
 
     try:
         import mujoco as mj
     except ImportError as exc:
-        raise RuntimeError("The 'matplotlib' renderer requires the optional dependency 'mujoco'.") from exc
+        raise RuntimeError(
+            "The 'matplotlib' renderer requires the 'mujoco' package. Run `uv sync` in this project."
+        ) from exc
 
-    from .render_mj import _clip_positions_to_limits, _load_mujoco_model, detect_arm_joints
-
-    trajectory = Trajectory.coerce(traj)
+    trajectory = Trajectory.coerce(trajectory)
     path = pathlib.Path(model_path)
     model = _load_mujoco_model(path)
     data = mj.MjData(model)
@@ -234,35 +273,100 @@ def play(
     limits = _compute_axis_limits(np.concatenate(bounds_per_frame, axis=0))
 
     dpi = 100
-    figsize = _resolve_figsize(dpi=dpi, record_size=record_size)
+    figsize = _resolve_figsize(dpi=dpi, record_size=None if recording is None else recording.size)
     figure = plt.figure(figsize=figsize, constrained_layout=True)
     axis = figure.add_subplot(111, projection="3d")
     base_title = title or "Matplotlib 3D Playback"
-    frame_indices = range(trajectory.steps) if show else (trajectory.steps - 1,)
-
-    for frame_index in frame_indices:
-        _draw_frame(
-            axis,
-            frame=frames[frame_index],
-            title=f"{base_title} ({frame_index + 1}/{trajectory.steps})",
-            limits=limits,
-            camera=camera,
-        )
-        if show and frame_index < trajectory.steps - 1:
-            plt.pause(max(1e-4, slow / hz))
-
-    if record_path is not None:
-        output_path = pathlib.Path(record_path)
-        if output_path.suffix.lower() not in {".png", ".pdf", ".svg", ".jpg", ".jpeg"}:
-            output_path = output_path.with_suffix(".png")
+    output_path = None
+    record_mode = None
+    if recording is not None:
+        output_path, record_mode = _resolve_record_output_path(recording.path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        figure.savefig(output_path.as_posix(), dpi=dpi)
+        if recording.frames_dir is not None and record_mode != "video":
+            raise ValueError("record_frames_dir is only supported for video recording outputs.")
 
-    if show:
-        plt.show()
-    plt.close(figure)
+    effective_show = bool(show and record_mode != "video")
+    animate = effective_show or record_mode == "video"
+    frame_indices = range(trajectory.steps) if animate else (trajectory.steps - 1,)
+    writer = None
+    try:
+        if record_mode == "video" and output_path is not None and recording is not None:
+            writer = FrameSequenceWriter(
+                output_path,
+                fps=resolve_recording_fps(playback, recording),
+                frames_dir=recording.frames_dir,
+                temp_prefix="ei_vo_matplotlib_",
+            )
+
+        for frame_index in frame_indices:
+            _draw_frame(
+                axis,
+                frame=frames[frame_index],
+                title=f"{base_title} ({frame_index + 1}/{trajectory.steps})",
+                limits=limits,
+                camera=camera,
+            )
+            if writer is not None:
+                writer.append_data(_capture_figure_frame(figure))
+            if effective_show and frame_index < trajectory.steps - 1:
+                plt.pause(max(1e-4, playback.step_dt))
+
+        if record_mode == "image" and output_path is not None:
+            figure.savefig(output_path.as_posix(), dpi=dpi)
+
+        if effective_show:
+            plt.show()
+    finally:
+        if writer is not None:
+            writer.close()
+        plt.close(figure)
+
+
+def play(
+    model_path: str | pathlib.Path | None,
+    traj,
+    slow: float = 1.0,
+    hz: float = 240.0,
+    camera=None,
+    loop: bool = False,
+    record_path: str | pathlib.Path | None = None,
+    record_fps: float | None = None,
+    record_size: tuple[int, int] | None = None,
+    record_frames_dir: str | pathlib.Path | None = None,
+    *,
+    show: bool = True,
+    title: str | None = None,
+    kinematics_backend: str | None = None,
+    kinematics_model_path: str | pathlib.Path | None = None,
+    base_link: str | None = None,
+    end_link: str | None = None,
+):
+    """Compatibility wrapper around :func:`play_trajectory`."""
+
+    del kinematics_backend, kinematics_model_path, base_link, end_link
+
+    playback_config, camera_settings, recording = normalize_runtime_config(
+        hz=hz,
+        slow=slow,
+        loop=loop,
+        camera=camera,
+        record_path=record_path,
+        record_fps=record_fps,
+        record_size=record_size,
+        record_frames_dir=record_frames_dir,
+    )
+    play_trajectory(
+        model_path,
+        traj,
+        playback=playback_config,
+        camera=camera_settings,
+        recording=recording,
+        show=show,
+        title=title,
+    )
 
 
 __all__ = [
     "play",
+    "play_trajectory",
 ]

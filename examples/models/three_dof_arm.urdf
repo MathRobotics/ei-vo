@@ -1,5 +1,21 @@
 <?xml version="1.0"?>
 <robot name="demo_arm_3dof">
+  <material name="base_graphite">
+    <color rgba="0.20 0.22 0.26 1.0"/>
+  </material>
+  <material name="link1_orange">
+    <color rgba="0.92 0.46 0.12 1.0"/>
+  </material>
+  <material name="link2_teal">
+    <color rgba="0.10 0.60 0.58 1.0"/>
+  </material>
+  <material name="link3_blue">
+    <color rgba="0.18 0.42 0.86 1.0"/>
+  </material>
+  <material name="ee_red">
+    <color rgba="0.88 0.18 0.22 1.0"/>
+  </material>
+
   <link name="base">
     <inertial>
       <origin xyz="0 0 0.05" rpy="0 0 0"/>
@@ -11,6 +27,7 @@
       <geometry>
         <box size="0.12 0.12 0.10"/>
       </geometry>
+      <material name="base_graphite"/>
     </visual>
     <collision>
       <origin xyz="0 0 0.05" rpy="0 0 0"/>
@@ -38,6 +55,7 @@
       <geometry>
         <cylinder radius="0.035" length="0.24"/>
       </geometry>
+      <material name="link1_orange"/>
     </visual>
     <collision>
       <origin xyz="0 0 0.12" rpy="0 0 0"/>
@@ -65,6 +83,7 @@
       <geometry>
         <cylinder radius="0.03" length="0.20"/>
       </geometry>
+      <material name="link2_teal"/>
     </visual>
     <collision>
       <origin xyz="0 0 0.10" rpy="0 0 0"/>
@@ -92,6 +111,7 @@
       <geometry>
         <cylinder radius="0.028" length="0.18"/>
       </geometry>
+      <material name="link3_blue"/>
     </visual>
     <collision>
       <origin xyz="0 0 0.09" rpy="0 0 0"/>
@@ -117,6 +137,7 @@
       <geometry>
         <sphere radius="0.02"/>
       </geometry>
+      <material name="ee_red"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>

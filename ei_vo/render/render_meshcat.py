@@ -2,18 +2,38 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 import pathlib
-import shutil
 import subprocess
-import tempfile
+import sys
 import time
+import webbrowser
 from typing import Mapping
 
 import numpy as np
 
+from ..config import (
+    CameraSettings,
+    PlaybackConfig,
+    RecordingConfig,
+    coerce_camera_settings,
+    coerce_playback_config,
+    normalize_runtime_config,
+    resolve_recording_fps,
+)
 from ..core import Trajectory
-from .render_mj import CameraSettings, PlaybackConfig, _load_mujoco_model, detect_arm_joints
+from ..modeling import (
+    detect_arm_joints,
+    load_mujoco_model as _load_mujoco_model,
+)
+
+_MESHCAT_PORT_ENV_NAMES = (
+    "EI_VO_MESHCAT_ZMQ_PORT_START",
+    "EI_VO_MESHCAT_ZMQ_PORT_END",
+    "EI_VO_MESHCAT_WEB_PORT_START",
+    "EI_VO_MESHCAT_WEB_PORT_END",
+)
 
 
 def _import_meshcat():
@@ -36,16 +56,6 @@ def _import_mujoco():
     return mj
 
 
-def _import_imageio():
-    try:
-        import imageio.v2 as imageio
-    except ImportError as exc:
-        raise RuntimeError(
-            "MeshCat video recording requires the optional dependency 'imageio[ffmpeg]'."
-        ) from exc
-    return imageio
-
-
 def _import_pinocchio_visualizer():
     try:
         import pinocchio as pin
@@ -55,6 +65,55 @@ def _import_pinocchio_visualizer():
             "The 'meshcat' renderer requires the optional dependency 'pin' for URDF visual playback."
         ) from exc
     return pin, MeshcatVisualizer
+
+
+def _meshcat_port_override_requested() -> bool:
+    return any(os.environ.get(name) for name in _MESHCAT_PORT_ENV_NAMES)
+
+
+def _start_meshcat_server_as_subprocess(zmq_url: str | None = None, server_args: list[str] | None = None):
+    args = [sys.executable, "-u", "-m", "ei_vo.render.meshcat_server"]
+    if zmq_url is not None:
+        args.extend(["--zmq-url", zmq_url])
+    if server_args:
+        args.extend(server_args)
+
+    server_proc = subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=dict(os.environ),
+        start_new_session=True,
+    )
+
+    line = ""
+    while "zmq_url" not in line:
+        line = server_proc.stdout.readline().strip().decode("utf-8")
+        if server_proc.poll() is not None:
+            outs, errs = server_proc.communicate()
+            print(outs.decode("utf-8"))
+            print(errs.decode("utf-8"))
+            raise RuntimeError(
+                "the meshcat server process exited prematurely with exit code " + str(server_proc.poll())
+            )
+
+    zmq_url_value = line.split("=", 1)[1]
+    web_url_value = server_proc.stdout.readline().strip().decode("utf-8").split("=", 1)[1]
+
+    def cleanup(proc):
+        proc.kill()
+        proc.wait()
+
+    atexit.register(cleanup, server_proc)
+    return server_proc, zmq_url_value, web_url_value
+
+
+def _create_visualizer(meshcat_module):
+    if not _meshcat_port_override_requested():
+        return meshcat_module.Visualizer()
+
+    _, zmq_url, _ = _start_meshcat_server_as_subprocess()
+    return meshcat_module.Visualizer(zmq_url=zmq_url)
 
 
 def _pinocchio_package_dirs(model_path: pathlib.Path) -> list[str]:
@@ -140,18 +199,7 @@ _MESHCAT_WORLD_TO_ROTATED = _rotation_x(-np.pi / 2.0)
 
 
 def _coerce_camera_settings(camera: object | Mapping[str, object] | None) -> CameraSettings | None:
-    if camera is None:
-        return None
-    if isinstance(camera, CameraSettings):
-        return camera
-    if isinstance(camera, Mapping):
-        return CameraSettings(
-            distance=camera.get("distance"),
-            azimuth=camera.get("azimuth"),
-            elevation=camera.get("elevation"),
-            lookat=camera.get("lookat"),
-        )
-    return CameraSettings.from_camera(camera)
+    return coerce_camera_settings(camera)
 
 
 def _camera_settings_from_world_offset(world_offset: np.ndarray) -> CameraSettings:
@@ -350,246 +398,29 @@ def _save_html(visualizer, record_path: str | pathlib.Path) -> pathlib.Path:
     return path
 
 
-def _resolve_record_fps(playback: PlaybackConfig, record_fps: float | None) -> float:
-    fps = float(record_fps) if record_fps is not None else (1.0 / max(playback.step_dt, 1e-9))
-    if fps <= 0:
-        raise ValueError(f"record_fps must be positive. Got {record_fps}.")
-    return fps
-
-
-def _resolve_record_size(record_size: tuple[int, int] | None) -> tuple[int, int]:
-    if record_size is None:
-        return 1280, 720
-    width, height = record_size
-    if width <= 0 or height <= 0:
-        raise ValueError(f"record_size must contain positive integers. Got {record_size}.")
-    return int(width), int(height)
-
-
-def _resolve_record_targets(record_path: str | pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
+def _resolve_record_html_path(record_path: str | pathlib.Path) -> pathlib.Path:
     path = pathlib.Path(record_path)
-    suffix = path.suffix.lower()
-    if suffix == "":
-        return path.with_suffix(".mp4"), path.with_suffix(".html")
-    if suffix == ".html":
-        return path.with_suffix(".mp4"), path
-    return path, path.with_suffix(".html")
-
-
-def _find_browser_executable() -> str:
-    for env_name in ("EI_VO_BROWSER", "MESHCAT_BROWSER"):
-        configured = os.environ.get(env_name)
-        if configured:
-            return configured
-
-    for candidate in (
-        "google-chrome",
-        "google-chrome-stable",
-        "chromium",
-        "chromium-browser",
-    ):
-        resolved = shutil.which(candidate)
-        if resolved is not None:
-            return resolved
-
-    raise RuntimeError(
-        "MeshCat video recording requires a Chromium-based browser. "
-        "Set EI_VO_BROWSER to an executable path or install google-chrome/chromium."
-    )
-
-
-_CAPTURE_QUERY_SCRIPT = """
-<script>
-(function () {
-  let captureAttempts = 0;
-  function applyCaptureOptions() {
-    if (typeof viewer === "undefined") {
-      requestAnimationFrame(applyCaptureOptions);
-      return;
-    }
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("meshcat_hide_gui") === "1" && viewer.gui && viewer.gui.domElement) {
-      viewer.gui.domElement.style.display = "none";
-    }
-    const timeValue = params.get("meshcat_time");
-    if (timeValue !== null) {
-      if (!viewer.animator) {
-        if (captureAttempts < 120) {
-          captureAttempts += 1;
-          requestAnimationFrame(applyCaptureOptions);
-        }
-        return;
-      }
-      const actions = viewer.animator.actions || [];
-      if (actions.length === 0 && captureAttempts < 120) {
-        captureAttempts += 1;
-        requestAnimationFrame(applyCaptureOptions);
-        return;
-      }
-      const time = Number(timeValue);
-      viewer.animator.reset();
-      for (const action of actions) {
-        action.play();
-        action.paused = true;
-        action.enabled = true;
-      }
-      viewer.animator.pause();
-      viewer.animator.seek(Number.isFinite(time) ? time : 0.0);
-    }
-    if (typeof viewer.set_dirty === "function") {
-      viewer.set_dirty();
-    }
-    if (typeof viewer.render === "function") {
-      viewer.render();
-    }
-  }
-  requestAnimationFrame(applyCaptureOptions);
-})();
-</script>
-""".strip()
-
-
-_CAPTURE_BOOTSTRAP_VIEWER_LINE = 'var viewer = new MeshCat.Viewer(document.getElementById("meshcat-pane"));'
-
-
-_CAPTURE_BOOTSTRAP_SCRIPT = """
-(function () {
-  const params = new URLSearchParams(window.location.search);
-  if (!params.has("meshcat_time")) {
-    return;
-  }
-  const originalSetAnimation = viewer.set_animation.bind(viewer);
-  viewer.set_animation = function (animations, options) {
-    const captureOptions = Object.assign({}, options || {}, {play: false});
-    return originalSetAnimation(animations, captureOptions);
-  };
-})();
-""".strip()
-
-
-def _build_capture_html_source(html_source: str) -> str:
-    if _CAPTURE_BOOTSTRAP_VIEWER_LINE in html_source:
-        html_source = html_source.replace(
-            _CAPTURE_BOOTSTRAP_VIEWER_LINE,
-            f"{_CAPTURE_BOOTSTRAP_VIEWER_LINE}\n{_CAPTURE_BOOTSTRAP_SCRIPT}",
-            1,
-        )
-    marker = "</body>"
-    if marker in html_source:
-        return html_source.replace(marker, f"{_CAPTURE_QUERY_SCRIPT}\n{marker}", 1)
-    return f"{html_source}\n{_CAPTURE_QUERY_SCRIPT}\n"
-
-
-def _capture_html_frame(
-    browser_path: str,
-    html_path: pathlib.Path,
-    screenshot_path: pathlib.Path,
-    *,
-    time_seconds: float,
-    size: tuple[int, int],
-) -> None:
-    width, height = size
-    html_url = f"{html_path.resolve().as_uri()}?meshcat_time={time_seconds:.12f}&meshcat_hide_gui=1"
-    command = [
-        browser_path,
-        "--headless",
-        "--disable-gpu",
-        "--hide-scrollbars",
-        "--run-all-compositor-stages-before-draw",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--allow-file-access-from-files",
-        f"--window-size={width},{height}",
-        "--virtual-time-budget=5000",
-        f"--screenshot={screenshot_path.as_posix()}",
-        html_url,
-    ]
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode != 0:
-        details = result.stderr.strip() or result.stdout.strip()
-        raise RuntimeError(f"MeshCat video capture failed for frame at t={time_seconds:.6f}s: {details}")
-    if not screenshot_path.exists():
-        raise RuntimeError(f"MeshCat video capture did not create {screenshot_path}.")
-
-
-def _coerce_video_frame(frame) -> np.ndarray:
-    image = np.asarray(frame)
-    if image.ndim == 2:
-        image = np.repeat(image[:, :, None], 3, axis=2)
-    if image.ndim == 3 and image.shape[2] == 4:
-        image = image[:, :, :3]
-    if image.dtype != np.uint8:
-        scale = 255.0 if np.issubdtype(image.dtype, np.floating) and float(np.max(image)) <= 1.0 else 1.0
-        image = np.clip(image * scale, 0.0, 255.0).astype(np.uint8)
-    return image
-
-
-def _render_video_from_html(
-    html_path: pathlib.Path,
-    video_path: pathlib.Path,
-    *,
-    fps: float,
-    size: tuple[int, int],
-    frame_count: int,
-) -> pathlib.Path:
-    imageio = _import_imageio()
-    browser_path = _find_browser_executable()
-    video_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with tempfile.TemporaryDirectory(prefix="ei_vo_meshcat_") as temp_dir_name:
-        temp_dir = pathlib.Path(temp_dir_name)
-        capture_html_path = temp_dir / "capture.html"
-        capture_html_path.write_text(
-            _build_capture_html_source(html_path.read_text(encoding="utf-8")),
-            encoding="utf-8",
-        )
-        try:
-            writer = imageio.get_writer(video_path.as_posix(), fps=fps)
-        except ValueError as exc:
-            raise RuntimeError(
-                "MeshCat MP4 recording requires an imageio video backend. "
-                "Install 'imageio[ffmpeg]' (recommended) or 'imageio[pyav]'."
-            ) from exc
-        try:
-            for frame_index in range(frame_count):
-                screenshot_path = temp_dir / f"{frame_index:07d}.png"
-                _capture_html_frame(
-                    browser_path,
-                    capture_html_path,
-                    screenshot_path,
-                    time_seconds=frame_index / fps,
-                    size=size,
-                )
-                writer.append_data(_coerce_video_frame(imageio.imread(screenshot_path.as_posix())))
-        finally:
-            writer.close()
-
-    return video_path
+    return path if path.suffix.lower() == ".html" else path.with_suffix(".html")
 
 
 def _export_recording_artifacts(
     visualizer,
     *,
-    playback: PlaybackConfig,
-    record_path: str | pathlib.Path,
-    record_fps: float | None,
-    record_size: tuple[int, int] | None,
-    frame_count: int,
+    recording: RecordingConfig,
     recorder: "_AnimationRecorder | None",
-) -> tuple[pathlib.Path, pathlib.Path]:
-    video_path, html_path = _resolve_record_targets(record_path)
+) -> pathlib.Path:
     if recorder is not None:
         recorder.begin_frame(None)
         recorder.apply(visualizer)
-    saved_html = _save_html(visualizer, html_path)
-    _render_video_from_html(
-        saved_html,
-        video_path,
-        fps=_resolve_record_fps(playback, record_fps),
-        size=_resolve_record_size(record_size),
-        frame_count=frame_count,
-    )
-    return video_path, saved_html
+    return _save_html(visualizer, _resolve_record_html_path(recording.path))
+
+
+def _open_standalone_recording_html(html_path: pathlib.Path) -> None:
+    try:
+        webbrowser.open(html_path.resolve(strict=False).as_uri(), new=2)
+    except Exception:
+        # Recording already succeeded. A browser-open failure should not turn it into an error.
+        return
 
 
 class _AnimationRecorder:
@@ -640,8 +471,13 @@ class _RecordingNode:
         return getattr(self._node, name)
 
 
-def _build_recording_visualizer(meshcat_module, playback: PlaybackConfig, *, record_fps: float | None):
-    recorder = _AnimationRecorder(meshcat_module, fps=_resolve_record_fps(playback, record_fps))
+def _build_recording_visualizer(
+    meshcat_module,
+    playback: PlaybackConfig,
+    *,
+    recording: RecordingConfig,
+):
+    recorder = _AnimationRecorder(meshcat_module, fps=resolve_recording_fps(playback, recording))
     return recorder if recorder.enabled else None
 
 
@@ -653,9 +489,7 @@ def _play_with_mujoco(
     camera: CameraSettings | Mapping[str, object] | None,
     open_browser: bool,
     root_path: str,
-    record_path: str | pathlib.Path | None,
-    record_fps: float | None,
-    record_size: tuple[int, int] | None,
+    recording: RecordingConfig | None,
 ) -> None:
     mj = _import_mujoco()
     meshcat = _import_meshcat()
@@ -665,8 +499,8 @@ def _play_with_mujoco(
     arm_joints = detect_arm_joints(model, expected_dof=trajectory.dof)
     positions = _clip_positions_to_limits(trajectory.q, arm_joints.limits)
 
-    visualizer = meshcat.Visualizer()
-    recorder = _build_recording_visualizer(meshcat, playback, record_fps=record_fps) if record_path else None
+    visualizer = _create_visualizer(meshcat)
+    recorder = _build_recording_visualizer(meshcat, playback, recording=recording) if recording else None
     recording_visualizer = _RecordingNode(visualizer, recorder) if recorder is not None else visualizer
     if open_browser and hasattr(recording_visualizer, "open"):
         recording_visualizer.open()
@@ -685,16 +519,14 @@ def _play_with_mujoco(
             _update_scene(scene_root, data, geom_ids)
             time.sleep(playback.step_dt)
 
-        if record_path is not None and not exported:
-            _export_recording_artifacts(
+        if recording is not None and not exported:
+            saved_html = _export_recording_artifacts(
                 recording_visualizer,
-                playback=playback,
-                record_path=record_path,
-                record_fps=record_fps,
-                record_size=record_size,
-                frame_count=len(positions),
+                recording=recording,
                 recorder=recorder,
             )
+            if open_browser:
+                _open_standalone_recording_html(saved_html)
             exported = True
 
         if not playback.loop:
@@ -709,9 +541,7 @@ def _play_with_pinocchio(
     camera: CameraSettings | Mapping[str, object] | None,
     open_browser: bool,
     root_path: str,
-    record_path: str | pathlib.Path | None,
-    record_fps: float | None,
-    record_size: tuple[int, int] | None,
+    recording: RecordingConfig | None,
 ) -> None:
     meshcat = _import_meshcat()
     pin, MeshcatVisualizer = _import_pinocchio_visualizer()
@@ -731,8 +561,8 @@ def _play_with_pinocchio(
     upper_limits = getattr(model, "upperPositionLimit", np.full(model_dof, np.inf))
     positions = _clip_positions_to_pinocchio_limits(trajectory.q, lower_limits, upper_limits)
 
-    visualizer = meshcat.Visualizer()
-    recorder = _build_recording_visualizer(meshcat, playback, record_fps=record_fps) if record_path else None
+    visualizer = _create_visualizer(meshcat)
+    recorder = _build_recording_visualizer(meshcat, playback, recording=recording) if recording else None
     recording_visualizer = _RecordingNode(visualizer, recorder) if recorder is not None else visualizer
     visualizer_wrapper = MeshcatVisualizer(model, collision_model, visual_model)
     visualizer_wrapper.initViewer(viewer=recording_visualizer, open=open_browser, loadModel=False)
@@ -747,20 +577,64 @@ def _play_with_pinocchio(
             visualizer_wrapper.display(np.asarray(row, dtype=float))
             time.sleep(playback.step_dt)
 
-        if record_path is not None and not exported:
-            _export_recording_artifacts(
+        if recording is not None and not exported:
+            saved_html = _export_recording_artifacts(
                 recording_visualizer,
-                playback=playback,
-                record_path=record_path,
-                record_fps=record_fps,
-                record_size=record_size,
-                frame_count=len(positions),
+                recording=recording,
                 recorder=recorder,
             )
+            if open_browser:
+                _open_standalone_recording_html(saved_html)
             exported = True
 
         if not playback.loop:
             break
+
+
+def play_trajectory(
+    model_path: str | pathlib.Path | None,
+    trajectory: Trajectory | np.ndarray | list[list[float]] | list[float],
+    *,
+    playback: PlaybackConfig | None = None,
+    camera: CameraSettings | Mapping[str, object] | None = None,
+    recording: RecordingConfig | None = None,
+    open_browser: bool = True,
+    root_path: str = "",
+) -> None:
+    """Render a trajectory in MeshCat using normalized runtime config objects."""
+
+    if model_path is None:
+        raise ValueError("--model is required when using the meshcat renderer.")
+
+    playback = coerce_playback_config(playback)
+    if recording is not None:
+        if recording.size is not None:
+            raise ValueError("record_size is not supported for MeshCat HTML export.")
+        if recording.frames_dir is not None:
+            raise ValueError("record_frames_dir is not supported for MeshCat HTML export.")
+    path = pathlib.Path(model_path)
+    trajectory = Trajectory.coerce(trajectory)
+    if path.suffix.lower() == ".urdf":
+        _play_with_pinocchio(
+            path,
+            trajectory,
+            playback,
+            camera=camera,
+            open_browser=open_browser,
+            root_path=root_path,
+            recording=recording,
+        )
+        return
+
+    _play_with_mujoco(
+        path,
+        trajectory,
+        playback,
+        camera=camera,
+        open_browser=open_browser,
+        root_path=root_path,
+        recording=recording,
+    )
 
 
 def play(
@@ -773,6 +647,7 @@ def play(
     record_path: str | pathlib.Path | None = None,
     record_fps: float | None = None,
     record_size: tuple[int, int] | None = None,
+    record_frames_dir: str | pathlib.Path | None = None,
     *,
     open_browser: bool = True,
     root_path: str = "",
@@ -785,44 +660,31 @@ def play(
 
     URDF inputs are rendered via Pinocchio's visual model so `<visual>` geometry
     shows up in MeshCat. Other inputs fall back to MuJoCo geom playback. When
-    ``record_path`` is given, MeshCat writes an MP4 recording plus a standalone
-    HTML sidecar after the first playback pass. The exported HTML includes the
-    same keyframed playback animation used for the MP4 conversion.
+    ``record_path`` is given, MeshCat saves a standalone HTML snapshot with the
+    same keyframed playback animation after the first playback pass.
     """
 
     del kinematics_backend, kinematics_model_path, base_link, end_link
 
-    if model_path is None:
-        raise ValueError("--model is required when using the meshcat renderer.")
-
-    playback = PlaybackConfig(hz=hz, slow=slow, loop=loop)
-    path = pathlib.Path(model_path)
-    trajectory = Trajectory.coerce(traj)
-    if path.suffix.lower() == ".urdf":
-        _play_with_pinocchio(
-            path,
-            trajectory,
-            playback,
-            camera=camera,
-            open_browser=open_browser,
-            root_path=root_path,
-            record_path=record_path,
-            record_fps=record_fps,
-            record_size=record_size,
-        )
-        return
-
-    _play_with_mujoco(
-        path,
-        trajectory,
-        playback,
+    playback_config, camera_settings, recording = normalize_runtime_config(
+        hz=hz,
+        slow=slow,
+        loop=loop,
         camera=camera,
-        open_browser=open_browser,
-        root_path=root_path,
         record_path=record_path,
         record_fps=record_fps,
         record_size=record_size,
+        record_frames_dir=record_frames_dir,
+    )
+    play_trajectory(
+        model_path,
+        traj,
+        playback=playback_config,
+        camera=camera_settings,
+        recording=recording,
+        open_browser=open_browser,
+        root_path=root_path,
     )
 
 
-__all__ = ["play"]
+__all__ = ["play", "play_trajectory"]
