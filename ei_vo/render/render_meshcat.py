@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import atexit
-import os
 import pathlib
-import subprocess
-import sys
 import time
 import webbrowser
 from typing import Mapping
@@ -26,13 +22,6 @@ from ..core import Trajectory
 from ..modeling import (
     detect_arm_joints,
     load_mujoco_model as _load_mujoco_model,
-)
-
-_MESHCAT_PORT_ENV_NAMES = (
-    "EI_VO_MESHCAT_ZMQ_PORT_START",
-    "EI_VO_MESHCAT_ZMQ_PORT_END",
-    "EI_VO_MESHCAT_WEB_PORT_START",
-    "EI_VO_MESHCAT_WEB_PORT_END",
 )
 
 
@@ -67,53 +56,8 @@ def _import_pinocchio_visualizer():
     return pin, MeshcatVisualizer
 
 
-def _meshcat_port_override_requested() -> bool:
-    return any(os.environ.get(name) for name in _MESHCAT_PORT_ENV_NAMES)
-
-
-def _start_meshcat_server_as_subprocess(zmq_url: str | None = None, server_args: list[str] | None = None):
-    args = [sys.executable, "-u", "-m", "ei_vo.render.meshcat_server"]
-    if zmq_url is not None:
-        args.extend(["--zmq-url", zmq_url])
-    if server_args:
-        args.extend(server_args)
-
-    server_proc = subprocess.Popen(
-        args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=dict(os.environ),
-        start_new_session=True,
-    )
-
-    line = ""
-    while "zmq_url" not in line:
-        line = server_proc.stdout.readline().strip().decode("utf-8")
-        if server_proc.poll() is not None:
-            outs, errs = server_proc.communicate()
-            print(outs.decode("utf-8"))
-            print(errs.decode("utf-8"))
-            raise RuntimeError(
-                "the meshcat server process exited prematurely with exit code " + str(server_proc.poll())
-            )
-
-    zmq_url_value = line.split("=", 1)[1]
-    web_url_value = server_proc.stdout.readline().strip().decode("utf-8").split("=", 1)[1]
-
-    def cleanup(proc):
-        proc.kill()
-        proc.wait()
-
-    atexit.register(cleanup, server_proc)
-    return server_proc, zmq_url_value, web_url_value
-
-
 def _create_visualizer(meshcat_module):
-    if not _meshcat_port_override_requested():
-        return meshcat_module.Visualizer()
-
-    _, zmq_url, _ = _start_meshcat_server_as_subprocess()
-    return meshcat_module.Visualizer(zmq_url=zmq_url)
+    return meshcat_module.Visualizer()
 
 
 def _pinocchio_package_dirs(model_path: pathlib.Path) -> list[str]:
@@ -502,7 +446,7 @@ def _play_with_mujoco(
     visualizer = _create_visualizer(meshcat)
     recorder = _build_recording_visualizer(meshcat, playback, recording=recording) if recording else None
     recording_visualizer = _RecordingNode(visualizer, recorder) if recorder is not None else visualizer
-    if open_browser and hasattr(recording_visualizer, "open"):
+    if open_browser and recording is None and hasattr(recording_visualizer, "open"):
         recording_visualizer.open()
     _apply_camera_settings(recording_visualizer, camera)
     scene_root = recording_visualizer[root_path] if root_path else recording_visualizer
@@ -565,7 +509,11 @@ def _play_with_pinocchio(
     recorder = _build_recording_visualizer(meshcat, playback, recording=recording) if recording else None
     recording_visualizer = _RecordingNode(visualizer, recorder) if recorder is not None else visualizer
     visualizer_wrapper = MeshcatVisualizer(model, collision_model, visual_model)
-    visualizer_wrapper.initViewer(viewer=recording_visualizer, open=open_browser, loadModel=False)
+    visualizer_wrapper.initViewer(
+        viewer=recording_visualizer,
+        open=open_browser and recording is None,
+        loadModel=False,
+    )
     _apply_camera_settings(recording_visualizer, camera)
     visualizer_wrapper.loadViewerModel(rootNodeName=root_path or "pinocchio")
 

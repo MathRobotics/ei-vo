@@ -111,8 +111,7 @@ animated scene. Blender prefers a local Blender installation and the
 `blender` executable on your `PATH` or `EI_VO_BLENDER`; if that fails, `ei-vo`
 can also render through the optional `bpy` module installed into the current
 environment with `uv add bpy`. Repeated Blender renders reuse a cached `.blend`
-scene under `$TMPDIR/ei_vo_blender_cache` unless `EI_VO_BLENDER_CACHE_DIR` is
-set. MP4 export requires `ffmpeg`.
+scene under `$TMPDIR/ei_vo_blender_cache`. MP4 export requires `ffmpeg`.
 
 ## Trajectory files
 

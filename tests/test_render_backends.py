@@ -481,22 +481,15 @@ def test_meshcat_record_path_resolves_to_html():
     assert converted_html_path == pathlib.Path("scene.html")
 
 
-def test_meshcat_visualizer_uses_custom_server_when_port_override_is_set(monkeypatch):
+def test_meshcat_visualizer_uses_default_server(monkeypatch):
     captured = _install_dummy_meshcat(monkeypatch)
     sys.modules.pop("ei_vo.render.render_meshcat", None)
     meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
 
-    monkeypatch.setenv("EI_VO_MESHCAT_ZMQ_PORT_END", "9000")
-    monkeypatch.setattr(
-        meshcat_renderer,
-        "_start_meshcat_server_as_subprocess",
-        lambda zmq_url=None, server_args=None: (object(), "tcp://127.0.0.1:8123", "http://127.0.0.1:9123/static/"),
-    )
-
     visualizer = meshcat_renderer._create_visualizer(importlib.import_module("meshcat"))
 
     assert visualizer.path == ""
-    assert captured["zmq_url"] == "tcp://127.0.0.1:8123"
+    assert captured["zmq_url"] is None
 
 
 def test_meshcat_renderer_saves_standalone_html(monkeypatch, tmp_path, install_dummy_mujoco):
@@ -584,7 +577,7 @@ def test_meshcat_renderer_uses_pinocchio_for_urdf(monkeypatch, tmp_path):
         record_path=output_path,
     )
 
-    assert captured["opened"] == 1
+    assert captured["opened"] == 0
     expected_package_dirs = [
         candidate.as_posix()
         for candidate in (model_path.parent.resolve(), *model_path.parent.resolve().parents)

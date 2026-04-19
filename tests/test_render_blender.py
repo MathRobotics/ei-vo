@@ -18,6 +18,7 @@ def test_blender_renderer_invokes_headless_blender_for_video(monkeypatch, tmp_pa
     render_blender = _import_blender_module()
     captured = {}
     monkeypatch.setattr(render_blender.tempfile, "gettempdir", lambda: tmp_path.as_posix())
+    monkeypatch.setenv("EI_VO_BLENDER_CACHE_DIR", (tmp_path / "ignored_cache").as_posix())
 
     class FakeProcess:
         def __init__(self, lines):

@@ -138,9 +138,6 @@ def _resolve_record_fps(*, playback: PlaybackConfig, record_fps: float | None) -
 
 
 def _scene_cache_root() -> pathlib.Path:
-    configured = os.environ.get("EI_VO_BLENDER_CACHE_DIR")
-    if configured:
-        return pathlib.Path(configured).expanduser()
     return pathlib.Path(tempfile.gettempdir()) / "ei_vo_blender_cache"
 
 

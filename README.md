@@ -145,8 +145,7 @@ uv run ei-vo-play \
 - Blender can fall back to `bpy`; install it with `uv add bpy`.
 - Video export for Blender, MuJoCo, or Matplotlib needs `ffmpeg` on `PATH` or `EI_VO_FFMPEG`.
 - On macOS, MuJoCo interactive playback requires `mjpython`. The CLI relaunches automatically for `--renderer mujoco`.
-- Blender scene cache defaults to `$TMPDIR/ei_vo_blender_cache`; override with `EI_VO_BLENDER_CACHE_DIR`.
-- MeshCat port ranges can be widened with `EI_VO_MESHCAT_ZMQ_PORT_START`, `EI_VO_MESHCAT_ZMQ_PORT_END`, `EI_VO_MESHCAT_WEB_PORT_START`, and `EI_VO_MESHCAT_WEB_PORT_END`.
+- Blender scene cache is stored under `$TMPDIR/ei_vo_blender_cache`.
 - Input files for `--trajectries` must be shaped `(T, DOF)` and may be CSV, NPY, or JSON.
 
 ## Python API
