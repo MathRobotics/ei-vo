@@ -25,6 +25,7 @@ from ..modeling import (
 
 _IMAGE_SUFFIXES = {".png", ".pdf", ".svg", ".jpg", ".jpeg"}
 _VIDEO_SUFFIXES = {".mp4", ".gif", ".webm", ".mov"}
+_KNOWN_NON_INTERACTIVE_BACKENDS = frozenset({"agg", "cairo", "pdf", "pgf", "ps", "svg", "template"})
 
 
 def _resolve_figsize(
@@ -38,6 +39,21 @@ def _resolve_figsize(
             raise ValueError(f"record_size must contain positive integers. Got {record_size}.")
         return width_px / dpi, height_px / dpi
     return (7.5, 7.0)
+
+
+def _normalize_backend_name(backend: object) -> str:
+    backend_name = "" if backend is None else str(backend).strip().lower()
+    if backend_name.startswith("module://"):
+        backend_name = backend_name.removeprefix("module://")
+    return backend_name
+
+
+def _is_non_interactive_backend_name(backend_name: str) -> bool:
+    if not backend_name:
+        return False
+    if backend_name in _KNOWN_NON_INTERACTIVE_BACKENDS:
+        return True
+    return backend_name.rsplit(".", 1)[-1] in _KNOWN_NON_INTERACTIVE_BACKENDS
 
 
 def _geom_rgba(model, geom_id: int) -> np.ndarray:
@@ -218,6 +234,24 @@ def _capture_figure_frame(figure) -> np.ndarray:
     return frame[:, :, :3].copy()
 
 
+def _supports_live_show(figure) -> bool:
+    canvas = getattr(figure, "canvas", None)
+    manager = getattr(canvas, "manager", None)
+    if manager is not None:
+        try:
+            from matplotlib.backend_bases import FigureManagerBase
+        except Exception:
+            pass
+        else:
+            return type(manager).show is not FigureManagerBase.show
+
+    matplotlib = sys.modules.get("matplotlib")
+    get_backend = getattr(matplotlib, "get_backend", None)
+    if callable(get_backend):
+        return not _is_non_interactive_backend_name(_normalize_backend_name(get_backend()))
+    return True
+
+
 def play_trajectory(
     model_path: str | pathlib.Path | None,
     trajectory: Trajectory | np.ndarray | list[list[float]] | list[float],
@@ -285,7 +319,7 @@ def play_trajectory(
         if recording.frames_dir is not None and record_mode != "video":
             raise ValueError("record_frames_dir is only supported for video recording outputs.")
 
-    effective_show = bool(show and record_mode != "video")
+    effective_show = bool(show and record_mode != "video" and _supports_live_show(figure))
     animate = effective_show or record_mode == "video"
     frame_indices = range(trajectory.steps) if animate else (trajectory.steps - 1,)
     writer = None

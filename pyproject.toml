@@ -18,15 +18,18 @@ dependencies = [
     "numpy>=2.0.2",
     "matplotlib>=3.10.8",
     "mujoco>=3.4.0",
-    "pin>=3.7.0",
 ]
 
 [project.optional-dependencies]
 all = [
     "meshcat>=0.3.2",
+    "pin>=3.7.0",
+    "pyrender>=0.1.45,<0.2",
+    "urdfpy>=0.0.22,<0.1",
     "literobo",
 ]
 kinematics = [
+    "pin>=3.7.0",
     "literobo",
 ]
 literobo = [
@@ -34,15 +37,26 @@ literobo = [
 ]
 meshcat = [
     "meshcat>=0.3.2",
+    "pin>=3.7.0",
+]
+pinocchio = [
+    "pin>=3.7.0",
+]
+pyrender = [
+    "pyrender>=0.1.45,<0.2",
+    "urdfpy>=0.0.22,<0.1",
 ]
 plot = [
 ]
 recording = [
 ]
 dev = [
-    "literobo",
     "meshcat>=0.3.2",
+    "pin>=3.7.0",
+    "pyrender>=0.1.45,<0.2",
     "pytest",
+    "urdfpy>=0.0.22,<0.1",
+    "literobo",
 ]
 
 [project.scripts]

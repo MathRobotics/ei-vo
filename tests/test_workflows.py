@@ -75,7 +75,7 @@ def test_render_program_infers_dof_from_model_and_calls_renderer(monkeypatch):
     assert isinstance(trajectory, Trajectory)
     assert calls["model_path"] == "robot.xml"
     assert calls["trajectory"].dof == 3
-    assert calls["kwargs"]["renderer"] == "mujoco"
+    assert calls["kwargs"]["renderer"] == "matplotlib"
 
 
 def test_render_play_resolves_kinematics_spec(monkeypatch):
@@ -127,11 +127,10 @@ def test_switch_renderer_example_supports_matplotlib(monkeypatch):
     assert str(calls["args"][0]).endswith("examples/models/three_dof_arm.urdf")
     assert isinstance(calls["kwargs"]["renderer"], RenderSpec)
     assert calls["kwargs"]["renderer"].renderer == "matplotlib"
-    assert isinstance(calls["kwargs"]["kinematics"], KinematicsSpec)
-    assert calls["kwargs"]["kinematics"].backend == "pinocchio"
+    assert calls["kwargs"]["kinematics"] is None
 
 
-def test_switch_renderer_example_defaults_to_meshcat_and_pinocchio(monkeypatch):
+def test_switch_renderer_example_defaults_to_matplotlib_without_kinematics(monkeypatch):
     module = importlib.import_module("examples.switch_renderer")
     calls = {}
 
@@ -143,11 +142,9 @@ def test_switch_renderer_example_defaults_to_meshcat_and_pinocchio(monkeypatch):
     module.main()
 
     assert str(calls["args"][0]).endswith("examples/models/three_dof_arm.urdf")
-    assert calls["kwargs"]["renderer"] == "meshcat"
-    assert isinstance(calls["kwargs"]["kinematics"], KinematicsSpec)
-    assert calls["kwargs"]["kinematics"].backend == "pinocchio"
-    assert calls["kwargs"]["kinematics"].base_link == "base"
-    assert calls["kwargs"]["kinematics"].end_link == "ee"
+    assert isinstance(calls["kwargs"]["renderer"], RenderSpec)
+    assert calls["kwargs"]["renderer"].renderer == "matplotlib"
+    assert calls["kwargs"]["kinematics"] is None
 
 
 def test_switch_renderer_example_supports_kinematics_backend(monkeypatch):
@@ -182,7 +179,7 @@ def test_switch_renderer_example_supports_kinematics_backend(monkeypatch):
     assert calls["mjpython"][1][0].endswith("examples/switch_renderer.py")
 
 
-def test_switch_renderer_example_supports_blender(monkeypatch):
+def test_switch_renderer_example_supports_pyrender(monkeypatch):
     module = importlib.import_module("examples.switch_renderer")
     calls = {}
 
@@ -191,9 +188,9 @@ def test_switch_renderer_example_supports_blender(monkeypatch):
         calls["kwargs"] = kwargs
 
     monkeypatch.setattr(module, "render_program", fake_render_program)
-    monkeypatch.setattr(module, "RENDERER", "blender")
+    monkeypatch.setattr(module, "RENDERER", "pyrender")
     module.main()
 
     assert str(calls["args"][0]).endswith("examples/models/three_dof_arm.urdf")
-    assert calls["kwargs"]["renderer"] == "blender"
-    assert str(calls["kwargs"]["record_path"]).endswith("recordings/switch_renderer_blender.mp4")
+    assert calls["kwargs"]["renderer"] == "pyrender"
+    assert str(calls["kwargs"]["record_path"]).endswith("recordings/switch_renderer_pyrender.mp4")

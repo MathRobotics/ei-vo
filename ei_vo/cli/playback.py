@@ -43,17 +43,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--renderer",
         choices=available_renderers(),
-        default="meshcat",
+        default="matplotlib",
         help="Renderer backend to use",
     )
     parser.add_argument(
         "--backend",
         choices=available_kinematics_backends(),
-        default="pinocchio",
+        default=None,
         help="Optional kinematics backend to attach to the playback workflow",
     )
-    parser.add_argument("--base-link", default="base", help="Base link for --backend")
-    parser.add_argument("--end-link", default="ee", help="End link for --backend")
+    parser.add_argument("--base-link", default=None, help="Base link for --backend")
+    parser.add_argument("--end-link", default=None, help="End link for --backend")
     parser.add_argument("--loop", action="store_true", help="Loop playback until the viewer is closed")
     parser.add_argument(
         "--program",
@@ -108,34 +108,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Directory root used to persist numbered recording frames alongside video export",
     )
-    parser.add_argument(
-        "--blenderEngine",
-        choices=("workbench", "eevee", "cycles"),
-        default=None,
-        help="Override the Blender render engine when using --renderer blender",
-    )
-    parser.add_argument(
-        "--blenderSamples",
-        type=int,
-        default=None,
-        help="Override the Blender sample count when using --renderer blender",
-    )
-    parser.add_argument(
-        "--blenderFrame",
-        type=int,
-        default=None,
-        help="When --record points to an image file, render this Blender trajectory frame instead of the last frame",
-    )
-    parser.add_argument(
-        "--blenderNoSceneCache",
-        action="store_true",
-        help="Disable Blender scene cache reuse and rebuild the URDF scene from scratch",
-    )
-    parser.add_argument(
-        "--blenderDebugLinks",
-        default=None,
-        help="When --record points to an image file, write per-link Blender debug data as JSON",
-    )
     return parser
 
 
@@ -156,7 +128,7 @@ def _resolve_model_dof(args: argparse.Namespace, *, trajectory_dof: int | None) 
             raise FileNotFoundError(args.model)
         return _load_model_dof(args.model)
 
-    if args.renderer in {"blender", "matplotlib", "mujoco", "meshcat"}:
+    if args.renderer in {"matplotlib", "meshcat", "mujoco", "pyrender"}:
         raise ValueError(f"--model is required when using the {args.renderer} renderer.")
 
     if trajectory_dof is not None:
@@ -186,10 +158,10 @@ def build_trajectory(args: argparse.Namespace) -> Trajectory:
 
 def _resolve_recording(args: argparse.Namespace) -> tuple[str | None, str | None]:
     artifact_map = {
-        "blender": ("blender_", ".mp4"),
         "matplotlib": ("matplotlib_", ".png"),
-        "mujoco": ("playback_", ".mp4"),
         "meshcat": ("meshcat_", ".html"),
+        "mujoco": ("playback_", ".mp4"),
+        "pyrender": ("pyrender_", ".mp4"),
     }
     artifact_prefix, artifact_suffix = artifact_map[args.renderer]
     return resolve_record_destination(
@@ -251,17 +223,6 @@ def _build_play_kwargs(args: argparse.Namespace, *, record_path: str | None) -> 
         "renderer": args.renderer,
         "kinematics": _build_kinematics_spec(args),
     }
-    if args.renderer == "blender":
-        if args.blenderEngine is not None:
-            kwargs["engine"] = args.blenderEngine
-        if args.blenderSamples is not None:
-            kwargs["samples"] = args.blenderSamples
-        if args.blenderFrame is not None:
-            kwargs["image_frame_index"] = args.blenderFrame
-        if args.blenderNoSceneCache:
-            kwargs["scene_cache"] = False
-        if args.blenderDebugLinks is not None:
-            kwargs["debug_links_path"] = args.blenderDebugLinks
     return kwargs
 
 

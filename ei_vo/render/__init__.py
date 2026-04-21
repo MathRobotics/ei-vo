@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
-from ..config import CameraSettings, PlaybackConfig, RecordingConfig
-from .play import play
-from .registry import available_renderers, get_renderer, register_renderer
+import importlib
+
+_LAZY_EXPORTS = {
+    "ArmJointMap": (".render_mj", "ArmJointMap"),
+    "CameraSettings": ("..config", "CameraSettings"),
+    "PlaybackConfig": ("..config", "PlaybackConfig"),
+    "RecordingConfig": ("..config", "RecordingConfig"),
+    "available_renderers": (".registry", "available_renderers"),
+    "clamp_to_limits": (".render_mj", "clamp_to_limits"),
+    "detect_arm_joint_qaddr": (".render_mj", "detect_arm_joint_qaddr"),
+    "detect_arm_joints": (".render_mj", "detect_arm_joints"),
+    "get_renderer": (".registry", "get_renderer"),
+    "load_robot_model": (".render_mj", "load_robot_model"),
+    "play": (".play", "play"),
+    "play_trajectory": (".render_mj", "play_trajectory"),
+    "register_renderer": (".registry", "register_renderer"),
+}
 
 __all__ = [
     "CameraSettings",
@@ -18,29 +32,15 @@ __all__ = [
 
 
 def __getattr__(name: str):
-    if name in {
-        "ArmJointMap",
-        "clamp_to_limits",
-        "detect_arm_joint_qaddr",
-        "detect_arm_joints",
-        "load_robot_model",
-        "play_trajectory",
-    }:
-        from .render_mj import (
-            ArmJointMap,
-            clamp_to_limits,
-            detect_arm_joint_qaddr,
-            detect_arm_joints,
-            load_robot_model,
-            play_trajectory,
-        )
+    try:
+        module_name, attr_name = _LAZY_EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
 
-        return {
-            "ArmJointMap": ArmJointMap,
-            "clamp_to_limits": clamp_to_limits,
-            "detect_arm_joint_qaddr": detect_arm_joint_qaddr,
-            "detect_arm_joints": detect_arm_joints,
-            "load_robot_model": load_robot_model,
-            "play_trajectory": play_trajectory,
-        }[name]
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(importlib.import_module(module_name, __name__), attr_name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__) | set(_LAZY_EXPORTS))

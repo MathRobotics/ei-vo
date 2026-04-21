@@ -9,10 +9,10 @@ Renderer = Callable[..., object]
 
 _RENDERERS: dict[str, Renderer] = {}
 _BUILTIN_BACKENDS: dict[str, str] = {
-    "blender": "ei_vo.render.render_blender:play",
     "matplotlib": "ei_vo.render.render_matplotlib:play",
     "meshcat": "ei_vo.render.render_meshcat:play",
     "mujoco": "ei_vo.render.render_mj:play",
+    "pyrender": "ei_vo.render.render_pyrender:play",
 }
 _RENDERER_ALIASES: dict[str, str] = {
     "plot": "matplotlib",

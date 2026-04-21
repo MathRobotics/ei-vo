@@ -20,7 +20,7 @@ def play(
     record_fps: Optional[float] = None,
     record_size: Optional[Tuple[int, int]] = None,
     record_frames_dir: str | Path | None = None,
-    renderer: str | RenderSpec = "mujoco",
+    renderer: str | RenderSpec = "matplotlib",
     kinematics: str | KinematicsSpec | None = None,
     **backend_kwargs,
 ):

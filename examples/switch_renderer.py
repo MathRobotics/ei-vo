@@ -19,8 +19,8 @@ from ei_vo.mjpython import maybe_relaunch_with_mjpython
 
 ROOT = Path(__file__).resolve().parent
 MODEL = ROOT / "models/three_dof_arm.urdf"
-RENDERER = "meshcat"  # Change to "mujoco", "matplotlib", or "blender".
-BACKEND = "pinocchio"  # Change to "literobo" or None.
+RENDERER = "matplotlib"  # Change to "mujoco", "meshcat", or "pyrender".
+BACKEND = None  # Change to "pinocchio" or "literobo" when you need kinematics.
 BASE_LINK = "base"
 END_LINK = "ee"
 
@@ -44,12 +44,12 @@ def main() -> None:
     elif RENDERER in {"mujoco", "meshcat"}:
         renderer = RENDERER
         kwargs = {"program": "waypoints", "hz": 240.0}
-    elif RENDERER == "blender":
-        renderer = "blender"
+    elif RENDERER == "pyrender":
+        renderer = "pyrender"
         kwargs = {
             "program": "waypoints",
             "hz": 240.0,
-            "record_path": ROOT.parent / "recordings" / "switch_renderer_blender.mp4",
+            "record_path": ROOT.parent / "recordings" / "switch_renderer_pyrender.mp4",
         }
     else:
         raise ValueError(f"Unsupported renderer: {RENDERER!r}")

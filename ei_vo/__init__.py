@@ -1,36 +1,44 @@
-"""Public package interface."""
+"""Public package interface with lazy exports."""
 
 from __future__ import annotations
 
-from .backends import KinematicsSpec, RenderSpec
-from .config import CameraSettings, PlaybackConfig, RecordingConfig
-from .core.angles import load_angles
-from .core.core import RobotModel, Trajectory
-from .core.interpolation import quintic
-from .core.recording import resolve_record_destination
-from .demo import build_demo_trajectory, build_sine_demo, demo_waypoints, generate_demo_trajectory
-from .kinematics.registry import (
-    available_kinematics_backends,
-    get_kinematics_backend,
-    register_kinematics_backend,
-)
-from .modeling import ModelSource, load_robot_model
-from .programs import (
-    available_programs,
-    build_sine_trajectory,
-    build_waypoint_trajectory,
-    default_waypoints,
-    generate_positions,
-    generate_trajectory,
-)
-from .render.registry import available_renderers, get_renderer, register_renderer
-from .workflows import (
-    render_angles,
-    render_program,
-    resolve_program_dof,
-    trajectory_from_file,
-    trajectory_from_program,
-)
+import importlib
+
+_LAZY_EXPORTS = {
+    "CameraSettings": (".config", "CameraSettings"),
+    "KinematicsSpec": (".backends", "KinematicsSpec"),
+    "PlaybackConfig": (".config", "PlaybackConfig"),
+    "RecordingConfig": (".config", "RecordingConfig"),
+    "RenderSpec": (".backends", "RenderSpec"),
+    "available_programs": (".programs", "available_programs"),
+    "build_demo_trajectory": (".demo", "build_demo_trajectory"),
+    "build_sine_demo": (".demo", "build_sine_demo"),
+    "build_sine_trajectory": (".programs", "build_sine_trajectory"),
+    "build_waypoint_trajectory": (".programs", "build_waypoint_trajectory"),
+    "default_waypoints": (".programs", "default_waypoints"),
+    "demo_waypoints": (".demo", "demo_waypoints"),
+    "generate_demo_trajectory": (".demo", "generate_demo_trajectory"),
+    "generate_positions": (".programs", "generate_positions"),
+    "generate_trajectory": (".programs", "generate_trajectory"),
+    "get_kinematics_backend": (".kinematics.registry", "get_kinematics_backend"),
+    "get_renderer": (".render.registry", "get_renderer"),
+    "load_angles": (".core.angles", "load_angles"),
+    "RobotModel": (".core.core", "RobotModel"),
+    "Trajectory": (".core.core", "Trajectory"),
+    "available_kinematics_backends": (".kinematics.registry", "available_kinematics_backends"),
+    "available_renderers": (".render.registry", "available_renderers"),
+    "ModelSource": (".modeling", "ModelSource"),
+    "load_robot_model": (".modeling", "load_robot_model"),
+    "quintic": (".core.interpolation", "quintic"),
+    "register_kinematics_backend": (".kinematics.registry", "register_kinematics_backend"),
+    "register_renderer": (".render.registry", "register_renderer"),
+    "render_angles": (".workflows", "render_angles"),
+    "render_program": (".workflows", "render_program"),
+    "resolve_program_dof": (".workflows", "resolve_program_dof"),
+    "resolve_record_destination": (".core.recording", "resolve_record_destination"),
+    "trajectory_from_file": (".workflows", "trajectory_from_file"),
+    "trajectory_from_program": (".workflows", "trajectory_from_program"),
+}
 
 
 def play(*args, **kwargs):
@@ -69,6 +77,23 @@ def forward_kinematics(backend, *args, **kwargs):
         resolved_kwargs.update(kwargs)
         return _forward_kinematics(backend.backend, resolved_model_path, traj, **resolved_kwargs)
     return _forward_kinematics(backend, *args, **kwargs)
+
+
+def __getattr__(name: str):
+    try:
+        module_name, attr_name = _LAZY_EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+
+    value = getattr(importlib.import_module(module_name, __name__), attr_name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))
+
+
 __all__ = [
     "CameraSettings",
     "KinematicsSpec",

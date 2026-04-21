@@ -1,15 +1,19 @@
 # ei-vo
 
 `ei-vo` is a small trajectory rendering and kinematics library built around a
-shared URDF workflow. `pinocchio`, `matplotlib`, and `mujoco` are part of the
-standard install, and this README assumes `pinocchio` as the default
-kinematics backend.
+shared URDF workflow. The base install keeps the default rendering path usable
+with `matplotlib` and `mujoco`, while `pinocchio`, `meshcat`, `literobo`, and
+`pyrender` stay optional.
 
 ## Setup
 
 ```bash
 uv sync
-# add as needed: --extra meshcat --extra recording
+# add as needed:
+#   uv sync --extra pinocchio
+#   uv sync --extra meshcat
+#   uv sync --extra kinematics
+#   uv sync --extra pyrender
 ```
 
 ## Quick Start
@@ -49,7 +53,6 @@ uv run ei-vo-play \
 Record the same playback to MP4:
 
 ```bash
-uv sync --extra recording
 brew install ffmpeg
 
 uv run ei-vo-play \
@@ -60,22 +63,23 @@ uv run ei-vo-play \
 ```
 
 The same `--model` and trajectory inputs work across the built-in renderers.
-`pinocchio` is the default backend.
+No kinematics backend is selected by default.
 
 ## Switch Renderer
 
 In most cases, changing renderer just means changing `--renderer`.
 
-| Renderer | Typical use | Output |
-| --- | --- | --- |
-| `matplotlib` | simplest baseline | live figure, `.png`, `.mp4` |
-| `meshcat` | browser playback | live viewer, standalone `.html` |
-| `mujoco` | interactive desktop viewer | live viewer, `.mp4` |
-| `blender` | offline rendering | `.png`, `.mp4` |
+| Renderer | Install | Typical use | Output |
+| --- | --- | --- | --- |
+| `matplotlib` | base install | simplest baseline | live figure, `.png`, `.mp4` |
+| `meshcat` | `uv sync --extra meshcat` | browser playback | live viewer, standalone `.html` |
+| `mujoco` | base install | interactive desktop viewer | live viewer, `.mp4` |
+| `pyrender` | `uv sync --extra pyrender` | headless URDF offscreen export | `.png`, `.mp4` |
 
 MeshCat:
 
 ```bash
+uv sync --extra meshcat
 uv run ei-vo-play --renderer meshcat --model examples/models/three_dof_arm.urdf --program waypoints
 ```
 
@@ -85,15 +89,18 @@ MuJoCo:
 uv run ei-vo-play --renderer mujoco --model examples/models/three_dof_arm.urdf --program waypoints
 ```
 
-Blender:
+Pyrender:
 
 ```bash
-uv run ei-vo-play --renderer blender --model examples/models/three_dof_arm.urdf --program waypoints --record recordings/blender.mp4
+uv sync --extra pyrender
+uv run ei-vo-play --renderer pyrender --model examples/models/three_dof_arm.urdf --program waypoints --record recordings/pyrender.mp4
 ```
 
 If you need a kinematics backend in the same workflow:
 
 ```bash
+uv sync --extra kinematics
+
 uv run ei-vo-play \
   --renderer meshcat \
   --model examples/models/three_dof_arm.urdf \
@@ -110,8 +117,8 @@ not supported in the CLI.
 - `matplotlib`: `.png` or `.mp4`
 - `mujoco`: `.mp4`
 - `meshcat`: standalone `.html`
-- `blender`: `.png` or `.mp4`, and `--record` is required
-- `--recordFramesDir` is supported for Blender, MuJoCo, and Matplotlib video export
+- `pyrender`: `.png` or `.mp4`, and `--record` is required
+- `--recordFramesDir` is supported for MuJoCo, Matplotlib, and Pyrender video export
 
 MeshCat HTML export:
 
@@ -123,29 +130,27 @@ uv run ei-vo-play \
   --record recordings/scene.html
 ```
 
-Blender preview render:
+Pyrender still image:
 
 ```bash
 uv run ei-vo-play \
-  --renderer blender \
+  --renderer pyrender \
   --model examples/models/three_dof_arm.urdf \
   --program waypoints \
-  --record recordings/blender_preview.mp4 \
-  --recordFps 24 \
-  --recordSize 960 540 \
-  --blenderEngine workbench \
-  --blenderSamples 1
+  --record recordings/pyrender_frame.png \
+  --recordSize 1280 720
 ```
 
 ## Notes
 
-- Base install only depends on `numpy`.
+- Base install depends on `numpy`, `matplotlib`, and `mujoco`.
+- Optional extras are `pinocchio`, `meshcat`, `kinematics`, `literobo`, and `pyrender`.
 - URDF metadata such as DOF and joint limits is parsed without MuJoCo.
-- Blender prefers a local `blender` executable on `PATH` or `EI_VO_BLENDER`.
-- Blender can fall back to `bpy`; install it with `uv add bpy`.
-- Video export for Blender, MuJoCo, or Matplotlib needs `ffmpeg` on `PATH` or `EI_VO_FFMPEG`.
+- Pyrender uses `urdfpy` under a small Python 3.13 / NumPy 2 compatibility shim because upstream still pins an older `networkx`.
+- Pyrender is offscreen-only in `ei-vo`; it requires `--record` and does not support `--loop`.
+- Pyrender offscreen rendering may require `PYOPENGL_PLATFORM=egl` or `PYOPENGL_PLATFORM=osmesa` on headless Linux hosts.
+- Video export for MuJoCo, Pyrender, or Matplotlib needs `ffmpeg` on `PATH` or `EI_VO_FFMPEG`.
 - On macOS, MuJoCo interactive playback requires `mjpython`. The CLI relaunches automatically for `--renderer mujoco`.
-- Blender scene cache is stored under `$TMPDIR/ei_vo_blender_cache`.
 - Input files for `--trajectries` must be shaped `(T, DOF)` and may be CSV, NPY, or JSON.
 
 ## Python API

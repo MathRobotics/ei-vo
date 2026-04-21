@@ -10,7 +10,7 @@ from ei_vo import RenderSpec
 from ei_vo.core import Trajectory
 
 
-def _install_dummy_matplotlib(monkeypatch):
+def _install_dummy_matplotlib(monkeypatch, *, backend="tkagg"):
     captured = {}
 
     class DummyCanvas:
@@ -113,6 +113,7 @@ def _install_dummy_matplotlib(monkeypatch):
 
     matplotlib = types.ModuleType("matplotlib")
     matplotlib.pyplot = pyplot
+    matplotlib.get_backend = lambda: backend
 
     monkeypatch.setitem(sys.modules, "matplotlib", matplotlib)
     monkeypatch.setitem(sys.modules, "matplotlib.pyplot", pyplot)
@@ -322,7 +323,7 @@ def test_render_package_is_lazy_without_mujoco():
 
     render = importlib.import_module("ei_vo.render")
 
-    assert render.available_renderers() == ("blender", "matplotlib", "meshcat", "mujoco")
+    assert render.available_renderers() == ("matplotlib", "meshcat", "mujoco", "pyrender")
 
 
 def test_matplotlib_renderer_saves_image(monkeypatch, tmp_path, install_dummy_mujoco):
@@ -372,6 +373,28 @@ def test_matplotlib_renderer_animates_geometry_when_shown(monkeypatch, install_d
     assert len(captured["plots"]) == 3
     assert len(captured["scatters"]) == 3
     assert captured["title"] == "Animated Geometry (3/3)"
+
+
+def test_matplotlib_renderer_skips_live_show_for_non_interactive_backend(monkeypatch, install_dummy_mujoco):
+    install_dummy_mujoco()
+    captured = _install_dummy_matplotlib(monkeypatch, backend="agg")
+    sys.modules.pop("ei_vo.render.render_matplotlib", None)
+    matplotlib_renderer = importlib.import_module("ei_vo.render.render_matplotlib")
+
+    matplotlib_renderer.play(
+        "dummy.xml",
+        [[0.0, 0.2], [0.4, 0.6], [0.8, 1.0]],
+        hz=4.0,
+        show=True,
+        title="Headless Geometry",
+    )
+
+    assert "shown" not in captured
+    assert "pauses" not in captured
+    assert captured["clear_calls"] == 1
+    assert len(captured["plots"]) == 1
+    assert len(captured["scatters"]) == 1
+    assert captured["title"] == "Headless Geometry (3/3)"
 
 
 def test_matplotlib_renderer_records_mp4(monkeypatch, tmp_path, install_dummy_mujoco):

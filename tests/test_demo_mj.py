@@ -278,11 +278,8 @@ def test_cli_main_builds_program_and_calls_play(monkeypatch, install_dummy_mujoc
     assert isinstance(calls["trajectory"], Trajectory)
     assert calls["trajectory"].dof == 3
     assert calls["kwargs"]["hz"] == 10.0
-    assert calls["kwargs"]["renderer"] == "meshcat"
-    assert isinstance(calls["kwargs"]["kinematics"], KinematicsSpec)
-    assert calls["kwargs"]["kinematics"].backend == "pinocchio"
-    assert calls["kwargs"]["kinematics"].base_link == "base"
-    assert calls["kwargs"]["kinematics"].end_link == "ee"
+    assert calls["kwargs"]["renderer"] == "matplotlib"
+    assert calls["kwargs"]["kinematics"] is None
     assert calls["kwargs"]["record_path"] is None
     assert calls["kwargs"]["record_frames_dir"] is None
     assert calls["kwargs"]["camera"] is None
@@ -384,119 +381,6 @@ def test_cli_main_passes_record_frames_dir(monkeypatch):
     assert calls["kwargs"]["record_frames_dir"] == "recordings/frames"
 
 
-def test_cli_blender_passes_speed_overrides(monkeypatch):
-    cli = importlib.import_module("ei_vo.cli.playback")
-    calls = {}
-
-    monkeypatch.setattr(cli.os.path, "isfile", lambda path: True)
-    monkeypatch.setattr(cli, "_load_model_dof", lambda path: 3)
-    monkeypatch.setattr(cli, "maybe_relaunch_with_mjpython", lambda *args, **kwargs: None)
-
-    def fake_play(model_path, trajectory, **kwargs):
-        calls["model_path"] = model_path
-        calls["trajectory"] = trajectory
-        calls["kwargs"] = kwargs
-
-    monkeypatch.setattr(cli, "play", fake_play)
-
-    exit_code = cli.main(
-        [
-            "--renderer",
-            "blender",
-            "--model",
-            "robot.urdf",
-            "--program",
-            "waypoints",
-            "--record",
-            "recordings/scene.mp4",
-            "--recordFps",
-            "24",
-            "--blenderEngine",
-            "workbench",
-            "--blenderSamples",
-            "1",
-        ]
-    )
-
-    assert exit_code == 0
-    assert calls["kwargs"]["renderer"] == "blender"
-    assert calls["kwargs"]["record_fps"] == 24.0
-    assert calls["kwargs"]["engine"] == "workbench"
-    assert calls["kwargs"]["samples"] == 1
-
-
-def test_cli_blender_passes_image_frame_override(monkeypatch):
-    cli = importlib.import_module("ei_vo.cli.playback")
-    calls = {}
-
-    monkeypatch.setattr(cli.os.path, "isfile", lambda path: True)
-    monkeypatch.setattr(cli, "_load_model_dof", lambda path: 3)
-    monkeypatch.setattr(cli, "maybe_relaunch_with_mjpython", lambda *args, **kwargs: None)
-
-    def fake_play(model_path, trajectory, **kwargs):
-        calls["model_path"] = model_path
-        calls["trajectory"] = trajectory
-        calls["kwargs"] = kwargs
-
-    monkeypatch.setattr(cli, "play", fake_play)
-
-    exit_code = cli.main(
-        [
-            "--renderer",
-            "blender",
-            "--model",
-            "robot.urdf",
-            "--program",
-            "waypoints",
-            "--record",
-            "recordings/frame.png",
-            "--blenderFrame",
-            "360",
-        ]
-    )
-
-    assert exit_code == 0
-    assert calls["kwargs"]["renderer"] == "blender"
-    assert calls["kwargs"]["image_frame_index"] == 360
-
-
-def test_cli_blender_passes_scene_cache_and_debug_overrides(monkeypatch):
-    cli = importlib.import_module("ei_vo.cli.playback")
-    calls = {}
-
-    monkeypatch.setattr(cli.os.path, "isfile", lambda path: True)
-    monkeypatch.setattr(cli, "_load_model_dof", lambda path: 3)
-    monkeypatch.setattr(cli, "maybe_relaunch_with_mjpython", lambda *args, **kwargs: None)
-
-    def fake_play(model_path, trajectory, **kwargs):
-        calls["model_path"] = model_path
-        calls["trajectory"] = trajectory
-        calls["kwargs"] = kwargs
-
-    monkeypatch.setattr(cli, "play", fake_play)
-
-    exit_code = cli.main(
-        [
-            "--renderer",
-            "blender",
-            "--model",
-            "robot.urdf",
-            "--program",
-            "waypoints",
-            "--record",
-            "recordings/frame.png",
-            "--blenderNoSceneCache",
-            "--blenderDebugLinks",
-            "recordings/links.json",
-        ]
-    )
-
-    assert exit_code == 0
-    assert calls["kwargs"]["renderer"] == "blender"
-    assert calls["kwargs"]["scene_cache"] is False
-    assert calls["kwargs"]["debug_links_path"] == "recordings/links.json"
-
-
 def test_cli_mujoco_renderer_relaunches_via_helper(monkeypatch):
     cli = importlib.import_module("ei_vo.cli.playback")
     calls = {}
@@ -564,8 +448,8 @@ def test_cli_accepts_trajectries_option(monkeypatch, tmp_path: pathlib.Path):
     assert calls["model_path"] == "robot.urdf"
     assert isinstance(calls["trajectory"], Trajectory)
     assert calls["trajectory"].dof == 2
-    assert calls["kwargs"]["renderer"] == "meshcat"
-    assert calls["kwargs"]["kinematics"].backend == "pinocchio"
+    assert calls["kwargs"]["renderer"] == "matplotlib"
+    assert calls["kwargs"]["kinematics"] is None
 
 
 def test_cli_accepts_backend(monkeypatch):

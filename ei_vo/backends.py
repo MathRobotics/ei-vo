@@ -42,7 +42,7 @@ class KinematicsSpec:
 class RenderSpec:
     """Canonical renderer selection with optional kinematics wiring."""
 
-    renderer: str = "mujoco"
+    renderer: str = "matplotlib"
     options: dict[str, Any] = field(default_factory=dict)
     kinematics: KinematicsSpec | None = None
 
