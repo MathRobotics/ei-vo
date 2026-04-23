@@ -1,16 +1,11 @@
 # Examples
 
-`examples/demo_mj.py` is only a thin compatibility wrapper around the generic
-package CLI. The CLI can target multiple renderers without mixing their
-dependencies.
-
-The single Python example is:
+The main Python example is:
 
 - `examples/switch_renderer.py`: switch the renderer and backend by editing variables
 
 Bundled assets:
 
-- `examples/models/simple_model.xml`
 - `examples/models/three_dof_arm.urdf`
 - `examples/trajectories/three_dof_arm_waypoints.csv`
 
@@ -24,21 +19,11 @@ uv run ei-vo-play --renderer matplotlib --model examples/models/three_dof_arm.ur
 uv sync --extra pyrender
 uv run ei-vo-play --renderer pyrender --model examples/models/three_dof_arm.urdf --program waypoints --record recordings/pyrender.mp4
 uv sync --extra pinocchio
-uv run ei-vo-play --renderer mujoco --model examples/models/three_dof_arm.urdf --backend pinocchio --base-link base --end-link ee
+uv run ei-vo-play --renderer meshcat --model examples/models/three_dof_arm.urdf --backend pinocchio --base-link base --end-link ee
 ```
 
 The first command uses the default `matplotlib` renderer and does not attach a
 kinematics backend.
-
-On macOS, `ei-vo-play --renderer mujoco ...` and `ei-vo-demo --renderer mujoco
-...` relaunch themselves via `mjpython`.
-
-Compatibility wrapper:
-
-```bash
-uv run ei-vo-demo --renderer mujoco --model examples/models/three_dof_arm.urdf --demo wp
-uv run python examples/demo_mj.py --renderer mujoco --model examples/models/three_dof_arm.urdf --demo wp
-```
 
 ## Running the Python example
 
@@ -47,15 +32,13 @@ uv run python examples/switch_renderer.py
 ```
 
 Edit `MODEL`, `RENDERER`, and `BACKEND` to switch the playback setup. The file
-defaults to `matplotlib` without a kinematics backend. If you change
-`RENDERER` to `"mujoco"` on macOS, the script relaunches itself via
-`mjpython`.
+defaults to `matplotlib` without a kinematics backend.
 
 ## Options
 
 | Option | Description |
 | --- | --- |
-| `--renderer {matplotlib,meshcat,mujoco,pyrender}` | Select the renderer backend |
+| `--renderer {matplotlib,meshcat,pyrender}` | Select the renderer backend |
 | `--backend {literobo,pinocchio}` | Attach a kinematics backend to the playback workflow |
 | `--base-link NAME` | Base link for the selected backend |
 | `--end-link NAME` | End link for the selected backend |
@@ -67,27 +50,21 @@ defaults to `matplotlib` without a kinematics backend. If you change
 | `--program {waypoints,sine}` | Built-in trajectory program when `--trajectries` is omitted |
 | `--segT FLOAT` | Segment duration for waypoint programs |
 | `--slow FLOAT` | Slow-motion playback factor |
-| `--cameraDistance FLOAT` | Camera distance for `mujoco`, `meshcat`, `matplotlib`, or `pyrender` |
-| `--cameraAzimuth FLOAT` | Camera azimuth in degrees for `mujoco`, `meshcat`, `matplotlib`, or `pyrender` |
-| `--cameraElevation FLOAT` | Camera elevation in degrees for `mujoco`, `meshcat`, `matplotlib`, or `pyrender` |
-| `--cameraLookat X Y Z` | Camera look-at point for `mujoco`, `meshcat`, `matplotlib`, or `pyrender` |
-| `--record [PATH]` | Save backend output. MuJoCo writes MP4, Matplotlib and Pyrender write PNG or MP4, and MeshCat writes standalone HTML |
-| `--recordFps FLOAT` | Override recording FPS for MuJoCo, Matplotlib, or Pyrender video export, or MeshCat HTML animation |
+| `--cameraDistance FLOAT` | Camera distance for `meshcat`, `matplotlib`, or `pyrender` |
+| `--cameraAzimuth FLOAT` | Camera azimuth in degrees for `meshcat`, `matplotlib`, or `pyrender` |
+| `--cameraElevation FLOAT` | Camera elevation in degrees for `meshcat`, `matplotlib`, or `pyrender` |
+| `--cameraLookat X Y Z` | Camera look-at point for `meshcat`, `matplotlib`, or `pyrender` |
+| `--record [PATH]` | Save backend output. Matplotlib and Pyrender write PNG or MP4, and MeshCat writes standalone HTML |
+| `--recordFps FLOAT` | Override recording FPS for Matplotlib or Pyrender video export, or MeshCat HTML animation |
 | `--recordSize W H` | Override video output resolution where supported |
 
 The built-in renderers and the optional kinematics backend all read the same
 URDF supplied via `--model`. MeshCat displays URDF `<visual>` geometry through
-Pinocchio. XML/MJCF input is not supported in the CLI.
+Pinocchio.
 
 ## Recording
 
 ```bash
-uv run ei-vo-play \
-  --renderer mujoco \
-  --model examples/models/three_dof_arm.urdf \
-  --record recordings/playback.mp4 \
-  --recordFps 60
-
 uv run ei-vo-play \
   --renderer meshcat \
   --model examples/models/three_dof_arm.urdf \
@@ -115,9 +92,9 @@ or `PYOPENGL_PLATFORM=osmesa`. MP4 export requires `ffmpeg`.
 
 ## Trajectory files
 
-Input files loaded via `--trajectries` must have shape `(T, DOF)`. For MuJoCo,
-`DOF` must match the detected arm joints in the model. CSV, NPY, and JSON are
-supported.
+Input files loaded via `--trajectries` must have shape `(T, DOF)`. `DOF` must
+match the actuated arm joints detected in the URDF model. CSV, NPY, and JSON
+are supported.
 
 ## Tests
 

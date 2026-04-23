@@ -70,10 +70,10 @@ def test_render_program_infers_dof_from_model_and_calls_renderer(monkeypatch):
 
     monkeypatch.setattr(render_play, "play", fake_play)
 
-    trajectory = workflows.render_program("robot.xml", program="waypoints", hz=20.0)
+    trajectory = workflows.render_program("robot.urdf", program="waypoints", hz=20.0)
 
     assert isinstance(trajectory, Trajectory)
-    assert calls["model_path"] == "robot.xml"
+    assert calls["model_path"] == "robot.urdf"
     assert calls["trajectory"].dof == 3
     assert calls["kwargs"]["renderer"] == "matplotlib"
 
@@ -89,13 +89,13 @@ def test_render_play_resolves_kinematics_spec(monkeypatch):
     monkeypatch.setattr(render_play, "dispatch_render", fake_dispatch)
 
     render_play.play(
-        "robot.xml",
+        "robot.urdf",
         [[0.0, 1.0]],
-        renderer="mujoco",
+        renderer="meshcat",
         kinematics=KinematicsSpec("pinocchio", model_path="robot.urdf", base_link="base", end_link="ee"),
     )
 
-    assert calls["renderer"] == "mujoco"
+    assert calls["renderer"] == "meshcat"
     assert calls["kwargs"]["kinematics_backend"] == "pinocchio"
     assert calls["kwargs"]["kinematics_model_path"] == "robot.urdf"
     assert calls["kwargs"]["base_link"] == "base"
@@ -109,7 +109,7 @@ def test_render_angles_validates_model_dof(monkeypatch, tmp_path: pathlib.Path):
     monkeypatch.setattr(workflows, "_load_render_model_dof", lambda path: 3)
 
     with pytest.raises(ValueError, match="Trajectory DOF"):
-        workflows.render_angles(csv_path, model_path="robot.xml")
+        workflows.render_angles(csv_path, model_path="robot.urdf")
 
 
 def test_switch_renderer_example_supports_matplotlib(monkeypatch):
@@ -156,12 +156,7 @@ def test_switch_renderer_example_supports_kinematics_backend(monkeypatch):
         calls["kwargs"] = kwargs
 
     monkeypatch.setattr(module, "render_program", fake_render_program)
-    monkeypatch.setattr(
-        module,
-        "maybe_relaunch_with_mjpython",
-        lambda renderer, *, exec_args: calls.setdefault("mjpython", (renderer, exec_args)),
-    )
-    monkeypatch.setattr(module, "RENDERER", "mujoco")
+    monkeypatch.setattr(module, "RENDERER", "meshcat")
     monkeypatch.setattr(module, "BACKEND", "pinocchio")
     monkeypatch.setattr(module, "MODEL", pathlib.Path("robot.urdf"))
     monkeypatch.setattr(module, "BASE_LINK", "base")
@@ -169,14 +164,12 @@ def test_switch_renderer_example_supports_kinematics_backend(monkeypatch):
     module.main()
 
     assert calls["args"][0] == pathlib.Path("robot.urdf")
-    assert calls["kwargs"]["renderer"] == "mujoco"
+    assert calls["kwargs"]["renderer"] == "meshcat"
     assert isinstance(calls["kwargs"]["kinematics"], KinematicsSpec)
     assert calls["kwargs"]["kinematics"].backend == "pinocchio"
     assert calls["kwargs"]["kinematics"].model_path is None
     assert calls["kwargs"]["kinematics"].base_link == "base"
     assert calls["kwargs"]["kinematics"].end_link == "ee"
-    assert calls["mjpython"][0] == "mujoco"
-    assert calls["mjpython"][1][0].endswith("examples/switch_renderer.py")
 
 
 def test_switch_renderer_example_supports_pyrender(monkeypatch):

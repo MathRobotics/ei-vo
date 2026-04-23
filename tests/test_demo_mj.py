@@ -185,79 +185,16 @@ def test_resolve_record_destination_preserves_filename(tmp_path):
     assert auto_dir is None
 
 
-def test_examples_demo_wrapper_reexports_library_helpers(install_dummy_mujoco):
-    install_dummy_mujoco()
-    demo_mj = importlib.import_module("examples.demo_mj")
-
-    assert demo_mj.load_angles is load_angles
-    assert demo_mj.quintic is quintic
-    assert demo_mj._resolve_record_destination is resolve_record_destination
-
-    waypoints = demo_mj.demo_waypoints(3)
-    traj = demo_mj.build_demo_trajectory(waypoints, seg_T=1.0, hz=2.0)
-    sine = demo_mj.build_sine_demo(3, T_sec=1.0, hz=10.0)
-
-    assert traj.shape == (9, 3)
-    assert sine.shape == (11, 3)
-
-
-def test_legacy_cli_wrapper_reexports_generic_entrypoints():
+def test_cli_wrapper_reexports_generic_entrypoints():
     cli = importlib.import_module("ei_vo.cli.playback")
     demo_cli = importlib.import_module("ei_vo.cli.demo")
-    legacy_cli = importlib.import_module("ei_vo.cli.demo_mj")
 
     assert demo_cli.build_parser is cli.build_parser
     assert demo_cli.build_trajectory is cli.build_trajectory
     assert demo_cli.main is cli.main
-    assert legacy_cli.build_parser is cli.build_parser
-    assert legacy_cli.build_trajectory is cli.build_trajectory
-    assert legacy_cli.main is cli.main
 
 
-def test_maybe_relaunch_with_mjpython_execs_on_macos(monkeypatch):
-    helper = importlib.import_module("ei_vo.mjpython")
-    calls = {}
-
-    class ExecCalled(RuntimeError):
-        pass
-
-    monkeypatch.setattr(helper.sys, "platform", "darwin")
-    monkeypatch.delenv("MJPYTHON_BIN", raising=False)
-    monkeypatch.delenv("MJPYTHON_LIBPYTHON", raising=False)
-    monkeypatch.setattr(helper.shutil, "which", lambda name: "/tmp/mjpython")
-
-    def fake_execvp(path, argv):
-        calls["path"] = path
-        calls["argv"] = argv
-        raise ExecCalled()
-
-    monkeypatch.setattr(helper.os, "execvp", fake_execvp)
-
-    with pytest.raises(ExecCalled):
-        helper.maybe_relaunch_with_mjpython(
-            "mujoco",
-            exec_args=["-m", "ei_vo.cli.playback", "--renderer", "mujoco"],
-        )
-
-    assert calls["path"] == "/tmp/mjpython"
-    assert calls["argv"] == ["/tmp/mjpython", "-m", "ei_vo.cli.playback", "--renderer", "mujoco"]
-
-
-def test_maybe_relaunch_with_mjpython_skips_when_already_running(monkeypatch):
-    helper = importlib.import_module("ei_vo.mjpython")
-    calls = []
-
-    monkeypatch.setattr(helper.sys, "platform", "darwin")
-    monkeypatch.setenv("MJPYTHON_BIN", "/tmp/mjpython-bin")
-    monkeypatch.setattr(helper.os, "execvp", lambda *args: calls.append(args))
-
-    helper.maybe_relaunch_with_mjpython("mujoco", exec_args=["-m", "ei_vo.cli.playback"])
-
-    assert calls == []
-
-
-def test_cli_main_builds_program_and_calls_play(monkeypatch, install_dummy_mujoco):
-    install_dummy_mujoco()
+def test_cli_main_builds_program_and_calls_play(monkeypatch):
     cli = importlib.import_module("ei_vo.cli.playback")
     calls = {}
 
@@ -291,7 +228,6 @@ def test_cli_main_passes_camera_settings(monkeypatch):
 
     monkeypatch.setattr(cli.os.path, "isfile", lambda path: True)
     monkeypatch.setattr(cli, "_load_model_dof", lambda path: 3)
-    monkeypatch.setattr(cli, "maybe_relaunch_with_mjpython", lambda *args, **kwargs: None)
 
     def fake_play(model_path, trajectory, **kwargs):
         calls["model_path"] = model_path
@@ -303,7 +239,7 @@ def test_cli_main_passes_camera_settings(monkeypatch):
     exit_code = cli.main(
         [
             "--renderer",
-            "mujoco",
+            "meshcat",
             "--model",
             "robot.urdf",
             "--program",
@@ -324,7 +260,7 @@ def test_cli_main_passes_camera_settings(monkeypatch):
     assert exit_code == 0
     assert calls["model_path"] == "robot.urdf"
     assert isinstance(calls["trajectory"], Trajectory)
-    assert calls["kwargs"]["renderer"] == "mujoco"
+    assert calls["kwargs"]["renderer"] == "meshcat"
     assert calls["kwargs"]["camera"] == {
         "distance": 3.5,
         "azimuth": 120.0,
@@ -352,7 +288,6 @@ def test_cli_main_passes_record_frames_dir(monkeypatch):
 
     monkeypatch.setattr(cli.os.path, "isfile", lambda path: True)
     monkeypatch.setattr(cli, "_load_model_dof", lambda path: 3)
-    monkeypatch.setattr(cli, "maybe_relaunch_with_mjpython", lambda *args, **kwargs: None)
 
     def fake_play(model_path, trajectory, **kwargs):
         calls["model_path"] = model_path
@@ -381,27 +316,6 @@ def test_cli_main_passes_record_frames_dir(monkeypatch):
     assert calls["kwargs"]["record_frames_dir"] == "recordings/frames"
 
 
-def test_cli_mujoco_renderer_relaunches_via_helper(monkeypatch):
-    cli = importlib.import_module("ei_vo.cli.playback")
-    calls = {}
-
-    monkeypatch.setattr(cli.os.path, "isfile", lambda path: True)
-    monkeypatch.setattr(cli, "_load_model_dof", lambda path: 2)
-
-    def fake_relaunch(renderer, *, exec_args):
-        calls["renderer"] = renderer
-        calls["exec_args"] = exec_args
-
-    monkeypatch.setattr(cli, "maybe_relaunch_with_mjpython", fake_relaunch)
-    monkeypatch.setattr(cli, "play", lambda *args, **kwargs: None)
-
-    exit_code = cli.main(["--renderer", "mujoco", "--model", "robot.urdf", "--program", "waypoints"])
-
-    assert exit_code == 0
-    assert calls["renderer"] == "mujoco"
-    assert calls["exec_args"] == ["-m", "ei_vo.cli.playback", "--renderer", "mujoco", "--model", "robot.urdf", "--program", "waypoints"]
-
-
 def test_cli_matplotlib_renderer_uses_model(monkeypatch):
     cli = importlib.import_module("ei_vo.cli.playback")
     calls = {}
@@ -423,7 +337,6 @@ def test_cli_matplotlib_renderer_uses_model(monkeypatch):
     assert isinstance(calls["trajectory"], Trajectory)
     assert calls["trajectory"].dof == 2
     assert calls["kwargs"]["renderer"] == "matplotlib"
-    assert "plot_mode" not in calls["kwargs"]
 
 
 def test_cli_accepts_trajectries_option(monkeypatch, tmp_path: pathlib.Path):

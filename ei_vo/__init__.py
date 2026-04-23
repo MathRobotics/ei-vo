@@ -54,7 +54,7 @@ def render_trajectory(*args, **kwargs):
 
 
 def play_trajectory(*args, **kwargs):
-    from .render.render_mj import play_trajectory as _play_trajectory
+    from .render.play import play as _play_trajectory
 
     return _play_trajectory(*args, **kwargs)
 

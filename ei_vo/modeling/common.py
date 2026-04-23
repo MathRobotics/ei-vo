@@ -19,7 +19,7 @@ class ModelSource:
         suffix = path.suffix.lower()
         if suffix == ".urdf":
             return cls(path=path, format="urdf")
-        return cls(path=path, format="mujoco")
+        raise ValueError(f"Only URDF models are supported. Got {path!s}.")
 
 
 __all__ = ["ModelSource"]

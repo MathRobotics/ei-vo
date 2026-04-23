@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 from pathlib import Path
 from typing import Sequence
 
@@ -12,7 +11,6 @@ from .. import play
 from ..backends import KinematicsSpec
 from ..core import Trajectory, resolve_record_destination
 from ..kinematics import available_kinematics_backends
-from ..mjpython import maybe_relaunch_with_mjpython
 from ..modeling import load_robot_model
 from ..programs import available_programs, normalize_program_mode
 from ..render import available_renderers
@@ -128,7 +126,7 @@ def _resolve_model_dof(args: argparse.Namespace, *, trajectory_dof: int | None) 
             raise FileNotFoundError(args.model)
         return _load_model_dof(args.model)
 
-    if args.renderer in {"matplotlib", "meshcat", "mujoco", "pyrender"}:
+    if args.renderer in {"matplotlib", "meshcat", "pyrender"}:
         raise ValueError(f"--model is required when using the {args.renderer} renderer.")
 
     if trajectory_dof is not None:
@@ -160,7 +158,6 @@ def _resolve_recording(args: argparse.Namespace) -> tuple[str | None, str | None
     artifact_map = {
         "matplotlib": ("matplotlib_", ".png"),
         "meshcat": ("meshcat_", ".html"),
-        "mujoco": ("playback_", ".mp4"),
         "pyrender": ("pyrender_", ".mp4"),
     }
     artifact_prefix, artifact_suffix = artifact_map[args.renderer]
@@ -229,10 +226,6 @@ def _build_play_kwargs(args: argparse.Namespace, *, record_path: str | None) -> 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    maybe_relaunch_with_mjpython(
-        args.renderer,
-        exec_args=["-m", "ei_vo.cli.playback", *(list(sys.argv[1:]) if argv is None else list(argv))],
-    )
     record_path, auto_dir = _resolve_recording(args)
 
     if auto_dir is not None and record_path is not None:

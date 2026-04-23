@@ -5,18 +5,13 @@ from __future__ import annotations
 import importlib
 
 _LAZY_EXPORTS = {
-    "ArmJointMap": (".render_mj", "ArmJointMap"),
     "CameraSettings": ("..config", "CameraSettings"),
     "PlaybackConfig": ("..config", "PlaybackConfig"),
     "RecordingConfig": ("..config", "RecordingConfig"),
     "available_renderers": (".registry", "available_renderers"),
-    "clamp_to_limits": (".render_mj", "clamp_to_limits"),
-    "detect_arm_joint_qaddr": (".render_mj", "detect_arm_joint_qaddr"),
-    "detect_arm_joints": (".render_mj", "detect_arm_joints"),
     "get_renderer": (".registry", "get_renderer"),
-    "load_robot_model": (".render_mj", "load_robot_model"),
     "play": (".play", "play"),
-    "play_trajectory": (".render_mj", "play_trajectory"),
+    "play_trajectory": (".play", "play"),
     "register_renderer": (".registry", "register_renderer"),
 }
 
@@ -27,6 +22,7 @@ __all__ = [
     "available_renderers",
     "get_renderer",
     "play",
+    "play_trajectory",
     "register_renderer",
 ]
 

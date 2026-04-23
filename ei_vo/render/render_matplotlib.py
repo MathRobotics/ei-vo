@@ -1,4 +1,4 @@
-"""Matplotlib-based 3D playback for MuJoCo models."""
+"""Matplotlib-based 3D playback for URDF models."""
 
 from __future__ import annotations
 
@@ -17,15 +17,23 @@ from ..config import (
     resolve_recording_fps,
 )
 from ..core import FrameSequenceWriter, Trajectory
-from ..modeling import (
-    clip_positions_to_limits as _clip_positions_to_limits,
-    detect_arm_joints,
-    load_mujoco_model as _load_mujoco_model,
-)
+from ..modeling import compute_link_poses, load_urdf_scene
 
 _IMAGE_SUFFIXES = {".png", ".pdf", ".svg", ".jpg", ".jpeg"}
 _VIDEO_SUFFIXES = {".mp4", ".gif", ".webm", ".mov"}
 _KNOWN_NON_INTERACTIVE_BACKENDS = frozenset({"agg", "cairo", "pdf", "pgf", "ps", "svg", "template"})
+_SKELETON_COLOR = (0.35, 0.35, 0.35)
+
+
+def _require_urdf_model_path(model_path: str | pathlib.Path | None) -> pathlib.Path:
+    if model_path is None:
+        raise ValueError("--model is required when using the matplotlib renderer.")
+    path = pathlib.Path(model_path)
+    if path.suffix.lower() != ".urdf":
+        raise ValueError(f"The 'matplotlib' renderer only supports URDF models. Got {path!s}.")
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    return path
 
 
 def _resolve_figsize(
@@ -54,83 +62,6 @@ def _is_non_interactive_backend_name(backend_name: str) -> bool:
     if backend_name in _KNOWN_NON_INTERACTIVE_BACKENDS:
         return True
     return backend_name.rsplit(".", 1)[-1] in _KNOWN_NON_INTERACTIVE_BACKENDS
-
-
-def _geom_rgba(model, geom_id: int) -> np.ndarray:
-    if hasattr(model, "geom_rgba"):
-        return np.asarray(model.geom_rgba[geom_id], dtype=float)
-    return np.array([0.7, 0.7, 0.7, 1.0], dtype=float)
-
-
-def _geom_color(model, geom_id: int) -> tuple[float, float, float]:
-    rgba = _geom_rgba(model, geom_id)
-    return tuple(np.clip(rgba[:3], 0.0, 1.0))
-
-
-def _supported_geom_ids(mj, model) -> tuple[int, ...]:
-    supported_geom_types = {
-        getattr(mj.mjtGeom, "mjGEOM_SPHERE", -1),
-        getattr(mj.mjtGeom, "mjGEOM_BOX", -1),
-        getattr(mj.mjtGeom, "mjGEOM_CYLINDER", -1),
-        getattr(mj.mjtGeom, "mjGEOM_CAPSULE", -1),
-        getattr(mj.mjtGeom, "mjGEOM_ELLIPSOID", -1),
-    }
-    return tuple(
-        geom_id
-        for geom_id in range(getattr(model, "ngeom", 0))
-        if int(model.geom_type[geom_id]) in supported_geom_types
-    )
-
-
-def _snapshot_frame(mj, model, data, geom_ids: tuple[int, ...]) -> dict[str, object]:
-    lines: list[tuple[np.ndarray, tuple[float, float, float], float]] = []
-    scatter_points: list[np.ndarray] = []
-    scatter_colors: list[tuple[float, float, float]] = []
-    scatter_sizes: list[float] = []
-    bounds: list[np.ndarray] = []
-
-    cylinder_like = {
-        getattr(mj.mjtGeom, "mjGEOM_CYLINDER", -1),
-        getattr(mj.mjtGeom, "mjGEOM_CAPSULE", -1),
-    }
-
-    for geom_id in geom_ids:
-        geom_type = int(model.geom_type[geom_id])
-        geom_size = np.asarray(model.geom_size[geom_id], dtype=float)
-        center = np.asarray(data.geom_xpos[geom_id], dtype=float)
-        rotation = np.asarray(data.geom_xmat[geom_id], dtype=float).reshape(3, 3)
-        color = _geom_color(model, geom_id)
-
-        if geom_type in cylinder_like and geom_size.shape[0] >= 2 and geom_size[1] > 0.0:
-            axis_direction = rotation[:, 2]
-            half_length = float(geom_size[1])
-            segment = np.vstack((center - axis_direction * half_length, center + axis_direction * half_length))
-            lines.append((segment, color, 2.8))
-            bounds.append(segment)
-            continue
-
-        scatter_points.append(center)
-        scatter_colors.append(color)
-        scatter_sizes.append(800.0 * max(float(np.max(geom_size)), 0.03))
-        bounds.append(center[None, :])
-
-    if bounds:
-        bounds_array = np.concatenate(bounds, axis=0)
-    else:
-        bounds_array = np.zeros((1, 3), dtype=float)
-
-    if scatter_points:
-        points_array = np.vstack(scatter_points)
-    else:
-        points_array = np.zeros((0, 3), dtype=float)
-
-    return {
-        "lines": tuple(lines),
-        "points": points_array,
-        "colors": tuple(scatter_colors),
-        "sizes": tuple(scatter_sizes),
-        "bounds": bounds_array,
-    }
 
 
 def _compute_axis_limits(bounds: np.ndarray) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float]]:
@@ -172,42 +103,15 @@ def _configure_axis(axis, *, title: str, limits, camera: object) -> None:
         axis.view_init(elev=elevation if elevation is not None else 25.0, azim=azimuth if azimuth is not None else 45.0)
 
 
-def _draw_frame(axis, *, frame: dict[str, object], title: str, limits, camera: object) -> None:
-    axis.clear()
-
-    for segment, color, linewidth in frame["lines"]:
-        axis.plot(
-            segment[:, 0],
-            segment[:, 1],
-            segment[:, 2],
-            color=color,
-            linewidth=linewidth,
-        )
-
-    points = frame["points"]
-    if len(points) > 0:
-        axis.scatter(
-            points[:, 0],
-            points[:, 1],
-            points[:, 2],
-            c=list(frame["colors"]),
-            s=list(frame["sizes"]),
-            depthshade=False,
-        )
-
-    _configure_axis(axis, title=title, limits=limits, camera=camera)
-
-
 def _import_pyplot(*, force_agg: bool):
     try:
         import matplotlib
+
         if force_agg and hasattr(matplotlib, "use") and "matplotlib.pyplot" not in sys.modules:
             matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError as exc:
-        raise RuntimeError(
-            "The 'matplotlib' renderer requires the optional dependency 'matplotlib'."
-        ) from exc
+        raise RuntimeError("The 'matplotlib' renderer requires the optional dependency 'matplotlib'.") from exc
     return plt
 
 
@@ -252,6 +156,100 @@ def _supports_live_show(figure) -> bool:
     return True
 
 
+def _draw_frame(axis, *, frame: dict[str, object], title: str, limits, camera: object) -> None:
+    axis.clear()
+
+    for segment, color, linewidth in frame["lines"]:
+        axis.plot(
+            segment[:, 0],
+            segment[:, 1],
+            segment[:, 2],
+            color=color,
+            linewidth=linewidth,
+        )
+
+    points = frame["points"]
+    if len(points) > 0:
+        axis.scatter(
+            points[:, 0],
+            points[:, 1],
+            points[:, 2],
+            c=list(frame["colors"]),
+            s=list(frame["sizes"]),
+            depthshade=False,
+        )
+
+    _configure_axis(axis, title=title, limits=limits, camera=camera)
+
+
+def _snapshot_frame(scene, row: np.ndarray) -> dict[str, object]:
+    link_poses = compute_link_poses(scene, row)
+    lines: list[tuple[np.ndarray, tuple[float, float, float], float]] = []
+    scatter_points: list[np.ndarray] = []
+    scatter_colors: list[tuple[float, float, float]] = []
+    scatter_sizes: list[float] = []
+    bounds: list[np.ndarray] = []
+
+    for parent_link, joints in scene.child_joints.items():
+        parent_pose = link_poses.get(parent_link)
+        if parent_pose is None:
+            continue
+        parent_position = np.asarray(parent_pose[:3, 3], dtype=float)
+        for joint in joints:
+            child_pose = link_poses.get(joint.child_link)
+            if child_pose is None:
+                continue
+            child_position = np.asarray(child_pose[:3, 3], dtype=float)
+            segment = np.vstack((parent_position, child_position))
+            lines.append((segment, _SKELETON_COLOR, 1.5))
+            bounds.append(segment)
+
+    for link_name, visuals in scene.link_visuals.items():
+        link_pose = link_poses.get(link_name)
+        if link_pose is None:
+            continue
+        for visual in visuals:
+            pose = link_pose @ visual.origin
+            center = np.asarray(pose[:3, 3], dtype=float)
+            color = tuple(np.clip(np.asarray(visual.rgba[:3], dtype=float), 0.0, 1.0))
+
+            if visual.geometry_type == "cylinder" and visual.length is not None and visual.length > 0.0:
+                axis = np.asarray(pose[:3, :3], dtype=float)[:, 2]
+                half_length = 0.5 * float(visual.length)
+                segment = np.vstack((center - axis * half_length, center + axis * half_length))
+                lines.append((segment, color, 3.0))
+                bounds.append(segment)
+                continue
+
+            scatter_points.append(center)
+            scatter_colors.append(color)
+            if visual.geometry_type == "box" and visual.size is not None:
+                scale = max(float(np.max(np.asarray(visual.size, dtype=float))), 0.03)
+            else:
+                scale = max(float(visual.radius or 0.03), 0.03)
+            scatter_sizes.append(1200.0 * scale)
+            bounds.append(center[None, :])
+
+    if not bounds:
+        all_positions = np.vstack([np.asarray(pose[:3, 3], dtype=float) for pose in link_poses.values()])
+        bounds_array = all_positions if len(all_positions) > 0 else np.zeros((1, 3), dtype=float)
+    else:
+        bounds_array = np.concatenate(bounds, axis=0)
+
+    if scatter_points:
+        points_array = np.vstack(scatter_points)
+    else:
+        points_array = np.zeros((0, 3), dtype=float)
+
+    return {
+        "lines": tuple(lines),
+        "points": points_array,
+        "colors": tuple(scatter_colors),
+        "sizes": tuple(scatter_sizes),
+        "bounds": bounds_array,
+    }
+
+
 def play_trajectory(
     model_path: str | pathlib.Path | None,
     trajectory: Trajectory | np.ndarray | list[list[float]] | list[float],
@@ -262,11 +260,9 @@ def play_trajectory(
     show: bool = True,
     title: str | None = None,
 ) -> None:
-    """Render a MuJoCo trajectory with Matplotlib in 3D."""
+    """Render a URDF trajectory with Matplotlib in 3D."""
 
-    if model_path is None:
-        raise ValueError("--model is required when using the matplotlib renderer.")
-
+    path = _require_urdf_model_path(model_path)
     playback = coerce_playback_config(playback)
     if playback.loop:
         raise ValueError("The 'matplotlib' renderer does not support loop playback.")
@@ -276,41 +272,18 @@ def play_trajectory(
         _, pre_record_mode = _resolve_record_output_path(recording.path)
 
     plt = _import_pyplot(force_agg=pre_record_mode == "video")
-
-    try:
-        import mujoco as mj
-    except ImportError as exc:
-        raise RuntimeError(
-            "The 'matplotlib' renderer requires the 'mujoco' package. Run `uv sync` in this project."
-        ) from exc
-
     trajectory = Trajectory.coerce(trajectory)
-    path = pathlib.Path(model_path)
-    model = _load_mujoco_model(path)
-    data = mj.MjData(model)
-    arm_joints = detect_arm_joints(model, expected_dof=trajectory.dof)
-    positions = _clip_positions_to_limits(trajectory.q, arm_joints.limits)
-    geom_ids = _supported_geom_ids(mj, model)
-    if not geom_ids:
-        raise RuntimeError("The 'matplotlib' renderer found no supported MuJoCo geoms to draw.")
+    scene = load_urdf_scene(path, expected_dof=trajectory.dof)
+    positions = scene.clamp(trajectory.q)
 
-    frames: list[dict[str, object]] = []
-    bounds_per_frame: list[np.ndarray] = []
-    for row in positions:
-        for qpos_address, value in zip(arm_joints.qpos_addresses, row):
-            data.qpos[qpos_address] = float(value)
-        mj.mj_forward(model, data)
-        frame = _snapshot_frame(mj, model, data, geom_ids)
-        frames.append(frame)
-        bounds_per_frame.append(frame["bounds"])
-
-    limits = _compute_axis_limits(np.concatenate(bounds_per_frame, axis=0))
+    frames = [_snapshot_frame(scene, row) for row in positions]
+    limits = _compute_axis_limits(np.concatenate([frame["bounds"] for frame in frames], axis=0))
 
     dpi = 100
     figsize = _resolve_figsize(dpi=dpi, record_size=None if recording is None else recording.size)
     figure = plt.figure(figsize=figsize, constrained_layout=True)
     axis = figure.add_subplot(111, projection="3d")
-    base_title = title or "Matplotlib 3D Playback"
+    base_title = title or "Matplotlib URDF Playback"
     output_path = None
     record_mode = None
     if recording is not None:
@@ -400,7 +373,4 @@ def play(
     )
 
 
-__all__ = [
-    "play",
-    "play_trajectory",
-]
+__all__ = ["play", "play_trajectory"]

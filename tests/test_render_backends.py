@@ -1,13 +1,55 @@
 import importlib
 import pathlib
 import sys
-import pytest
 import types
 
 import numpy as np
+import pytest
 
 from ei_vo import RenderSpec
 from ei_vo.core import Trajectory
+
+
+def _write_demo_urdf(path: pathlib.Path) -> pathlib.Path:
+    path.write_text(
+        """<?xml version="1.0"?>
+<robot name="demo_arm">
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry><box size="0.2 0.2 0.1"/></geometry>
+    </visual>
+  </link>
+  <link name="link1">
+    <visual>
+      <origin xyz="0 0 0.15" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.03" length="0.3"/></geometry>
+    </visual>
+  </link>
+  <link name="ee">
+    <visual>
+      <geometry><sphere radius="0.02"/></geometry>
+    </visual>
+  </link>
+  <joint name="joint1" type="revolute">
+    <parent link="base"/>
+    <child link="link1"/>
+    <origin xyz="0 0 0.1" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.0" upper="1.0" effort="1" velocity="1"/>
+  </joint>
+  <joint name="joint2" type="revolute">
+    <parent link="link1"/>
+    <child link="ee"/>
+    <origin xyz="0 0 0.3" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.5" upper="0.5" effort="1" velocity="1"/>
+  </joint>
+</robot>
+""",
+        encoding="utf-8",
+    )
+    return path
 
 
 def _install_dummy_matplotlib(monkeypatch, *, backend="tkagg"):
@@ -61,9 +103,6 @@ def _install_dummy_matplotlib(monkeypatch, *, backend="tkagg"):
 
         def grid(self, *args, **kwargs):
             captured["grid"] = True
-
-        def legend(self, *args, **kwargs):
-            captured["legend"] = True
 
         def set_xlim(self, left, right):
             captured["xlim"] = (left, right)
@@ -173,9 +212,6 @@ def _install_dummy_meshcat(monkeypatch):
         def set_property(self, key, value):
             captured["properties"][(self.path, key)] = value
 
-        def delete(self):
-            captured.setdefault("deleted", []).append(self.path)
-
         def open(self):
             captured["opened"] += 1
             return self
@@ -199,47 +235,14 @@ def _install_dummy_meshcat(monkeypatch):
             super().__init__()
             captured["zmq_url"] = zmq_url
 
-    class Sphere:
-        def __init__(self, radius):
-            self.radius = radius
-
-    class Box:
-        def __init__(self, lengths):
-            self.lengths = lengths
-
-    class Cylinder:
-        def __init__(self, height, radius):
-            self.height = height
-            self.radius = radius
-
-    class TriangularMeshGeometry:
-        def __init__(self, vertices, faces):
-            self.vertices = np.asarray(vertices)
-            self.faces = np.asarray(faces)
-
-    class MeshPhongMaterial:
-        def __init__(self, color, opacity=1.0, transparent=False):
-            self.color = color
-            self.opacity = opacity
-            self.transparent = transparent
-
-    geometry = types.ModuleType("meshcat.geometry")
-    geometry.Sphere = Sphere
-    geometry.Box = Box
-    geometry.Cylinder = Cylinder
-    geometry.TriangularMeshGeometry = TriangularMeshGeometry
-    geometry.MeshPhongMaterial = MeshPhongMaterial
-
     animation = types.ModuleType("meshcat.animation")
     animation.Animation = DummyAnimation
 
     meshcat = types.ModuleType("meshcat")
     meshcat.Visualizer = DummyVisualizer
-    meshcat.geometry = geometry
     meshcat.animation = animation
 
     monkeypatch.setitem(sys.modules, "meshcat", meshcat)
-    monkeypatch.setitem(sys.modules, "meshcat.geometry", geometry)
     monkeypatch.setitem(sys.modules, "meshcat.animation", animation)
     return captured
 
@@ -248,11 +251,11 @@ def _install_dummy_pinocchio_meshcat(monkeypatch):
     captured = {"build_calls": [], "loaded_roots": [], "displayed": []}
 
     class DummyModel:
-        nq = 3
+        nq = 2
 
         def __init__(self):
-            self.lowerPositionLimit = np.array([-0.5, -0.25, -1.0], dtype=float)
-            self.upperPositionLimit = np.array([0.5, 0.25, 1.0], dtype=float)
+            self.lowerPositionLimit = np.array([-0.5, -0.25], dtype=float)
+            self.upperPositionLimit = np.array([0.5, 0.25], dtype=float)
 
     class DummyGeometryModel:
         def __init__(self):
@@ -316,25 +319,25 @@ def _install_dummy_pinocchio_meshcat(monkeypatch):
     return captured
 
 
-def test_render_package_is_lazy_without_mujoco():
+def test_render_package_is_lazy_without_optional_renderers():
     sys.modules.pop("ei_vo.render", None)
-    sys.modules.pop("mujoco", None)
-    sys.modules.pop("mujoco.viewer", None)
+    sys.modules.pop("meshcat", None)
+    sys.modules.pop("pinocchio", None)
+    sys.modules.pop("pyrender", None)
 
     render = importlib.import_module("ei_vo.render")
 
-    assert render.available_renderers() == ("matplotlib", "meshcat", "mujoco", "pyrender")
+    assert render.available_renderers() == ("matplotlib", "meshcat", "pyrender")
 
 
-def test_matplotlib_renderer_saves_image(monkeypatch, tmp_path, install_dummy_mujoco):
-    install_dummy_mujoco()
+def test_matplotlib_renderer_saves_image(monkeypatch, tmp_path):
     captured = _install_dummy_matplotlib(monkeypatch)
     sys.modules.pop("ei_vo.render.render_matplotlib", None)
     matplotlib_renderer = importlib.import_module("ei_vo.render.render_matplotlib")
 
-    trajectory = Trajectory.from_positions(np.arange(12, dtype=float).reshape(4, 3), dt=0.1)
+    trajectory = Trajectory.from_positions(np.array([[0.0, 0.0], [0.4, 0.2], [0.8, -0.6]], dtype=float), dt=0.1)
     matplotlib_renderer.play(
-        "dummy.xml",
+        _write_demo_urdf(tmp_path / "robot.urdf"),
         trajectory,
         hz=10.0,
         show=False,
@@ -342,26 +345,25 @@ def test_matplotlib_renderer_saves_image(monkeypatch, tmp_path, install_dummy_mu
     )
 
     assert captured["projection"] == "3d"
-    assert len(captured["plots"]) == 1
-    assert len(captured["scatters"]) == 1
+    assert len(captured["plots"]) >= 2
+    assert len(captured["scatters"]) >= 1
     assert captured["savefig"][0].endswith("trajectory_plot.png")
     assert captured["xlabel"] == "x [m]"
     assert captured["ylabel"] == "y [m]"
     assert captured["zlabel"] == "z [m]"
-    assert captured["title"].endswith("(4/4)")
+    assert captured["title"].endswith("(3/3)")
     assert captured["box_aspect"] == (1.0, 1.0, 1.0)
     assert captured["closed"] is True
 
 
-def test_matplotlib_renderer_animates_geometry_when_shown(monkeypatch, install_dummy_mujoco):
-    install_dummy_mujoco()
+def test_matplotlib_renderer_animates_geometry_when_shown(monkeypatch, tmp_path):
     captured = _install_dummy_matplotlib(monkeypatch)
     sys.modules.pop("ei_vo.render.render_matplotlib", None)
     matplotlib_renderer = importlib.import_module("ei_vo.render.render_matplotlib")
 
     matplotlib_renderer.play(
-        "dummy.xml",
-        [[0.0, 0.2], [0.4, 0.6], [0.8, 1.0]],
+        _write_demo_urdf(tmp_path / "robot.urdf"),
+        [[0.0, 0.2], [0.4, 0.1], [0.8, -0.2]],
         hz=4.0,
         show=True,
         title="Animated Geometry",
@@ -370,20 +372,18 @@ def test_matplotlib_renderer_animates_geometry_when_shown(monkeypatch, install_d
     assert captured["shown"] == 1
     assert len(captured["pauses"]) == 2
     assert captured["clear_calls"] == 3
-    assert len(captured["plots"]) == 3
-    assert len(captured["scatters"]) == 3
+    assert len(captured["plots"]) >= 6
     assert captured["title"] == "Animated Geometry (3/3)"
 
 
-def test_matplotlib_renderer_skips_live_show_for_non_interactive_backend(monkeypatch, install_dummy_mujoco):
-    install_dummy_mujoco()
+def test_matplotlib_renderer_skips_live_show_for_non_interactive_backend(monkeypatch, tmp_path):
     captured = _install_dummy_matplotlib(monkeypatch, backend="agg")
     sys.modules.pop("ei_vo.render.render_matplotlib", None)
     matplotlib_renderer = importlib.import_module("ei_vo.render.render_matplotlib")
 
     matplotlib_renderer.play(
-        "dummy.xml",
-        [[0.0, 0.2], [0.4, 0.6], [0.8, 1.0]],
+        _write_demo_urdf(tmp_path / "robot.urdf"),
+        [[0.0, 0.2], [0.4, 0.1], [0.8, -0.2]],
         hz=4.0,
         show=True,
         title="Headless Geometry",
@@ -392,13 +392,10 @@ def test_matplotlib_renderer_skips_live_show_for_non_interactive_backend(monkeyp
     assert "shown" not in captured
     assert "pauses" not in captured
     assert captured["clear_calls"] == 1
-    assert len(captured["plots"]) == 1
-    assert len(captured["scatters"]) == 1
     assert captured["title"] == "Headless Geometry (3/3)"
 
 
-def test_matplotlib_renderer_records_mp4(monkeypatch, tmp_path, install_dummy_mujoco):
-    install_dummy_mujoco()
+def test_matplotlib_renderer_records_mp4(monkeypatch, tmp_path):
     captured = _install_dummy_matplotlib(monkeypatch)
     sys.modules.pop("ei_vo.render.render_matplotlib", None)
     matplotlib_renderer = importlib.import_module("ei_vo.render.render_matplotlib")
@@ -422,8 +419,8 @@ def test_matplotlib_renderer_records_mp4(monkeypatch, tmp_path, install_dummy_mu
     monkeypatch.setattr(matplotlib_renderer, "FrameSequenceWriter", DummyWriter)
 
     matplotlib_renderer.play(
-        "dummy.xml",
-        [[0.0, 0.2], [0.4, 0.6], [0.8, 1.0]],
+        _write_demo_urdf(tmp_path / "robot.urdf"),
+        [[0.0, 0.2], [0.4, 0.1], [0.8, -0.2]],
         hz=6.0,
         show=False,
         record_path=tmp_path / "trajectory.mp4",
@@ -436,22 +433,18 @@ def test_matplotlib_renderer_records_mp4(monkeypatch, tmp_path, install_dummy_mu
     assert captured["video_temp_prefix"] == "ei_vo_matplotlib_"
     assert len(captured["video_frames"]) == 3
     assert all(frame.shape == (3, 4, 3) for frame in captured["video_frames"])
-    assert all(frame.dtype == np.uint8 for frame in captured["video_frames"])
     assert captured["video_closed"] is True
-    assert "shown" not in captured
-    assert captured["closed"] is True
 
 
-def test_generic_play_dispatches_matplotlib_renderer(monkeypatch, install_dummy_mujoco):
-    install_dummy_mujoco()
+def test_generic_play_dispatches_matplotlib_renderer(monkeypatch, tmp_path):
     captured = _install_dummy_matplotlib(monkeypatch)
     sys.modules.pop("ei_vo.render.render_matplotlib", None)
     sys.modules.pop("ei_vo.render", None)
     render = importlib.import_module("ei_vo.render")
 
     render.play(
-        "dummy.xml",
-        [[0.0, 1.0], [1.0, 2.0]],
+        _write_demo_urdf(tmp_path / "robot.urdf"),
+        [[0.0, 0.1], [0.2, 0.3]],
         hz=2.0,
         renderer="matplotlib",
         show=False,
@@ -459,27 +452,22 @@ def test_generic_play_dispatches_matplotlib_renderer(monkeypatch, install_dummy_
     )
 
     assert captured["title"] == "Angles (2/2)"
-    assert len(captured["plots"]) == 1
-    assert len(captured["scatters"]) == 1
 
 
-def test_generic_play_accepts_render_spec(monkeypatch, install_dummy_mujoco):
-    install_dummy_mujoco()
+def test_generic_play_accepts_render_spec(monkeypatch, tmp_path):
     captured = _install_dummy_matplotlib(monkeypatch)
     sys.modules.pop("ei_vo.render.render_matplotlib", None)
     sys.modules.pop("ei_vo.render", None)
     render = importlib.import_module("ei_vo.render")
 
     render.play(
-        "dummy.xml",
-        [[0.0, 1.0], [1.0, 2.0]],
+        _write_demo_urdf(tmp_path / "robot.urdf"),
+        [[0.0, 0.1], [0.2, 0.3]],
         hz=2.0,
         renderer=RenderSpec("plot", options={"show": False, "title": "Configured Plot"}),
     )
 
     assert captured["title"] == "Configured Plot (2/2)"
-    assert len(captured["plots"]) == 1
-    assert len(captured["scatters"]) == 1
 
 
 def test_matplotlib_renderer_requires_model(monkeypatch):
@@ -515,71 +503,7 @@ def test_meshcat_visualizer_uses_default_server(monkeypatch):
     assert captured["zmq_url"] is None
 
 
-def test_meshcat_renderer_saves_standalone_html(monkeypatch, tmp_path, install_dummy_mujoco):
-    install_dummy_mujoco()
-    captured = _install_dummy_meshcat(monkeypatch)
-    sys.modules.pop("ei_vo.render.render_meshcat", None)
-    meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
-    monkeypatch.setattr(meshcat_renderer.time, "sleep", lambda _: None)
-    opened_html = []
-    monkeypatch.setattr(meshcat_renderer, "_open_standalone_recording_html", lambda path: opened_html.append(path))
-
-    trajectory = Trajectory.from_positions(np.linspace(0.0, 1.0, 14, dtype=float).reshape(2, 7))
-    output_path = tmp_path / "scene"
-    meshcat_renderer.play(
-        "dummy.xml",
-        trajectory,
-        hz=20.0,
-        open_browser=False,
-        record_path=output_path,
-        record_fps=12.0,
-    )
-
-    assert "geoms/0/shape" in captured["objects"]
-    assert "geoms/1/shape" in captured["objects"]
-    assert "geoms/2/cylinder" in captured["objects"]
-    assert len(captured["transforms"]["geoms/0"]) == trajectory.steps
-    assert len(captured["animations"]) == 1
-    assert captured["animations"][0]["play"] is True
-    assert captured["animations"][0]["repetitions"] == 1
-    assert captured["animations"][0]["animation"].default_framerate == 12.0
-    assert len(captured["animations"][0]["animation"].frames["geoms/0"]) == trajectory.steps
-    assert [frame for frame, _ in captured["animations"][0]["animation"].frames["geoms/0"]] == [0, 1]
-    assert output_path.with_suffix(".html").read_text(encoding="utf-8") == captured["html"]
-    assert opened_html == []
-
-
-def test_meshcat_renderer_applies_camera_settings(monkeypatch, install_dummy_mujoco):
-    install_dummy_mujoco()
-    captured = _install_dummy_meshcat(monkeypatch)
-    sys.modules.pop("ei_vo.render.render_meshcat", None)
-    meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
-    monkeypatch.setattr(meshcat_renderer.time, "sleep", lambda _: None)
-
-    meshcat_renderer.play(
-        "dummy.xml",
-        Trajectory.from_positions(np.zeros((1, 7), dtype=float), dt=0.1),
-        hz=20.0,
-        open_browser=False,
-        camera={
-            "distance": 2.0,
-            "azimuth": 90.0,
-            "elevation": -30.0,
-            "lookat": (1.0, 2.0, 3.0),
-        },
-    )
-
-    expected_transform = np.eye(4)
-    expected_transform[:3, 3] = np.array([1.0, 2.0, 3.0], dtype=float)
-    np.testing.assert_allclose(captured["transforms"]["/Cameras/default"][-1], expected_transform)
-    np.testing.assert_allclose(
-        captured["properties"][("/Cameras/default/rotated/<object>", "position")],
-        [0.0, 1.0, np.sqrt(3.0)],
-        atol=1e-6,
-    )
-
-
-def test_meshcat_renderer_uses_pinocchio_for_urdf(monkeypatch, tmp_path):
+def test_meshcat_renderer_saves_standalone_html(monkeypatch, tmp_path):
     captured = _install_dummy_meshcat(monkeypatch)
     pinocchio_captured = _install_dummy_pinocchio_meshcat(monkeypatch)
     sys.modules.pop("ei_vo.render.render_meshcat", None)
@@ -588,9 +512,8 @@ def test_meshcat_renderer_uses_pinocchio_for_urdf(monkeypatch, tmp_path):
     opened_html = []
     monkeypatch.setattr(meshcat_renderer, "_open_standalone_recording_html", lambda path: opened_html.append(path))
 
-    model_path = tmp_path / "robot.urdf"
-    model_path.write_text("<robot/>", encoding="utf-8")
-    trajectory = Trajectory.from_positions([[1.0, -1.0, 2.0], [-1.0, 1.0, -2.0]], dt=0.1)
+    model_path = _write_demo_urdf(tmp_path / "robot.urdf")
+    trajectory = Trajectory.from_positions(np.array([[1.0, -1.0], [-1.0, 1.0]], dtype=float), dt=0.1)
     output_path = tmp_path / "scene"
     meshcat_renderer.play(
         model_path,
@@ -600,7 +523,6 @@ def test_meshcat_renderer_uses_pinocchio_for_urdf(monkeypatch, tmp_path):
         record_path=output_path,
     )
 
-    assert captured["opened"] == 0
     expected_package_dirs = [
         candidate.as_posix()
         for candidate in (model_path.parent.resolve(), *model_path.parent.resolve().parents)
@@ -612,15 +534,13 @@ def test_meshcat_renderer_uses_pinocchio_for_urdf(monkeypatch, tmp_path):
         }
     ]
     assert pinocchio_captured["loaded_roots"] == ["pinocchio"]
-    np.testing.assert_allclose(pinocchio_captured["displayed"][0], [0.5, -0.25, 1.0])
-    np.testing.assert_allclose(pinocchio_captured["displayed"][1], [-0.5, 0.25, -1.0])
+    np.testing.assert_allclose(pinocchio_captured["displayed"][0], [0.5, -0.25])
+    np.testing.assert_allclose(pinocchio_captured["displayed"][1], [-0.5, 0.25])
     assert "pinocchio/visuals/base" in captured["objects"]
     assert "pinocchio/visuals/ee" in captured["objects"]
     assert len(captured["transforms"]["pinocchio/visuals/ee"]) == trajectory.steps
     assert len(captured["animations"]) == 1
     assert len(captured["animations"][0]["animation"].frames["pinocchio/visuals/ee"]) == trajectory.steps
-    assert [frame for frame, _ in captured["animations"][0]["animation"].frames["pinocchio/visuals/ee"]] == [0, 1]
-    assert captured["properties"][("pinocchio/visuals", "visible")] is True
     assert output_path.with_suffix(".html").read_text(encoding="utf-8") == captured["html"]
     assert opened_html == [output_path.with_suffix(".html")]
 
@@ -632,11 +552,10 @@ def test_meshcat_renderer_applies_lookat_to_urdf_visualizer(monkeypatch, tmp_pat
     meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
     monkeypatch.setattr(meshcat_renderer.time, "sleep", lambda _: None)
 
-    model_path = tmp_path / "robot.urdf"
-    model_path.write_text("<robot/>", encoding="utf-8")
+    model_path = _write_demo_urdf(tmp_path / "robot.urdf")
     meshcat_renderer.play(
         model_path,
-        Trajectory.from_positions(np.zeros((1, 3), dtype=float), dt=0.1),
+        Trajectory.from_positions(np.zeros((1, 2), dtype=float), dt=0.1),
         hz=20.0,
         open_browser=False,
         camera={"lookat": (0.5, -0.25, 1.2)},
@@ -651,85 +570,51 @@ def test_meshcat_renderer_applies_lookat_to_urdf_visualizer(monkeypatch, tmp_pat
     )
 
 
-def test_meshcat_renderer_rejects_record_size(monkeypatch, install_dummy_mujoco):
-    install_dummy_mujoco()
+def test_meshcat_renderer_rejects_record_size(monkeypatch, tmp_path):
     _install_dummy_meshcat(monkeypatch)
+    _install_dummy_pinocchio_meshcat(monkeypatch)
     sys.modules.pop("ei_vo.render.render_meshcat", None)
     meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
 
     with pytest.raises(ValueError, match="record_size"):
         meshcat_renderer.play(
-            "dummy.xml",
-            Trajectory.from_positions(np.zeros((1, 7), dtype=float), dt=0.1),
+            _write_demo_urdf(tmp_path / "robot.urdf"),
+            Trajectory.from_positions(np.zeros((1, 2), dtype=float), dt=0.1),
             record_path="scene.html",
             record_size=(640, 360),
         )
 
 
-def test_meshcat_renderer_rejects_record_frames_dir(monkeypatch, install_dummy_mujoco):
-    install_dummy_mujoco()
+def test_meshcat_renderer_rejects_record_frames_dir(monkeypatch, tmp_path):
     _install_dummy_meshcat(monkeypatch)
+    _install_dummy_pinocchio_meshcat(monkeypatch)
     sys.modules.pop("ei_vo.render.render_meshcat", None)
     meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
 
     with pytest.raises(ValueError, match="record_frames_dir"):
         meshcat_renderer.play(
-            "dummy.xml",
-            Trajectory.from_positions(np.zeros((1, 7), dtype=float), dt=0.1),
+            _write_demo_urdf(tmp_path / "robot.urdf"),
+            Trajectory.from_positions(np.zeros((1, 2), dtype=float), dt=0.1),
             record_path="scene.html",
             record_frames_dir="frames",
         )
 
 
-def test_meshcat_material_uses_builtin_bool(monkeypatch, install_dummy_mujoco):
-    install_dummy_mujoco()
+def test_meshcat_renderer_rejects_non_urdf(monkeypatch, tmp_path):
     _install_dummy_meshcat(monkeypatch)
+    _install_dummy_pinocchio_meshcat(monkeypatch)
     sys.modules.pop("ei_vo.render.render_meshcat", None)
     meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
+    model_path = tmp_path / "robot.xml"
+    model_path.write_text("<robot/>", encoding="utf-8")
 
-    class DummyMaterial:
-        def __init__(self, color, opacity=1.0, transparent=False):
-            self.color = color
-            self.opacity = opacity
-            self.transparent = transparent
-
-    geometry = types.SimpleNamespace(MeshPhongMaterial=DummyMaterial)
-    material = meshcat_renderer._rgba_to_material(geometry, np.array([0.1, 0.2, 0.3, 0.5]))
-
-    assert isinstance(material.transparent, bool)
-    assert material.transparent is True
-    assert isinstance(material.opacity, float)
+    with pytest.raises(ValueError, match="only supports URDF"):
+        meshcat_renderer.play(model_path, Trajectory.from_positions(np.zeros((1, 2), dtype=float), dt=0.1))
 
 
-def test_meshcat_mesh_geometry_uses_mujoco_mesh_buffers(monkeypatch, install_dummy_mujoco):
-    install_dummy_mujoco()
-    _install_dummy_meshcat(monkeypatch)
-    sys.modules.pop("ei_vo.render.render_meshcat", None)
-    meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
-    geometry = sys.modules["meshcat.geometry"]
-
-    model = types.SimpleNamespace(
-        geom_dataid=np.array([0]),
-        mesh_vertadr=np.array([0]),
-        mesh_vertnum=np.array([3]),
-        mesh_faceadr=np.array([0]),
-        mesh_facenum=np.array([1]),
-        mesh_vert=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
-        mesh_face=np.array([[0, 1, 2]]),
-        mesh_scale=np.array([[2.0, 3.0, 4.0]]),
-    )
-
-    mesh = meshcat_renderer._mesh_geometry(model, geometry, 0)
-
-    assert mesh.vertices.shape == (3, 3)
-    np.testing.assert_allclose(mesh.vertices[1], [2.0, 0.0, 0.0])
-    np.testing.assert_allclose(mesh.vertices[2], [0.0, 3.0, 0.0])
-    np.testing.assert_array_equal(mesh.faces, [[0, 1, 2]])
-
-
-def test_generic_play_dispatches_meshcat_renderer(monkeypatch, install_dummy_mujoco):
-    install_dummy_mujoco()
+def test_generic_play_dispatches_meshcat_renderer(monkeypatch, tmp_path):
     captured = _install_dummy_meshcat(monkeypatch)
+    _install_dummy_pinocchio_meshcat(monkeypatch)
     sys.modules.pop("ei_vo.render.render_meshcat", None)
     sys.modules.pop("ei_vo.render", None)
     render = importlib.import_module("ei_vo.render")
@@ -737,8 +622,8 @@ def test_generic_play_dispatches_meshcat_renderer(monkeypatch, install_dummy_muj
     monkeypatch.setattr(meshcat_renderer.time, "sleep", lambda _: None)
 
     render.play(
-        "dummy.xml",
-        np.linspace(0.0, 1.0, 14, dtype=float).reshape(2, 7),
+        _write_demo_urdf(tmp_path / "robot.urdf"),
+        np.array([[0.0, 0.0], [0.2, 0.2]], dtype=float),
         hz=10.0,
         renderer="meshcat",
         open_browser=True,

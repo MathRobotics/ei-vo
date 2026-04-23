@@ -15,11 +15,10 @@ else:
 ensure_repo_root_on_path()
 
 from ei_vo import KinematicsSpec, RenderSpec, render_program
-from ei_vo.mjpython import maybe_relaunch_with_mjpython
 
 ROOT = Path(__file__).resolve().parent
 MODEL = ROOT / "models/three_dof_arm.urdf"
-RENDERER = "matplotlib"  # Change to "mujoco", "meshcat", or "pyrender".
+RENDERER = "matplotlib"  # Change to "meshcat" or "pyrender".
 BACKEND = None  # Change to "pinocchio" or "literobo" when you need kinematics.
 BASE_LINK = "base"
 END_LINK = "ee"
@@ -41,7 +40,7 @@ def main() -> None:
     if RENDERER == "matplotlib":
         renderer = RenderSpec("matplotlib", options={"show": True, "title": "Renderer Switch"})
         kwargs = {"hz": 120.0}
-    elif RENDERER in {"mujoco", "meshcat"}:
+    elif RENDERER == "meshcat":
         renderer = RENDERER
         kwargs = {"program": "waypoints", "hz": 240.0}
     elif RENDERER == "pyrender":
@@ -54,7 +53,6 @@ def main() -> None:
     else:
         raise ValueError(f"Unsupported renderer: {RENDERER!r}")
 
-    maybe_relaunch_with_mjpython(RENDERER, exec_args=[__file__, *sys.argv[1:]])
     render_program(
         MODEL,
         renderer=renderer,
