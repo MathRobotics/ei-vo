@@ -50,7 +50,7 @@ def test_resolve_program_dof_can_use_kinematics_spec(monkeypatch):
     monkeypatch.setattr(workflows, "_load_kinematics_model_dof", lambda spec, model_path=None: 6)
 
     dof = workflows.resolve_program_dof(
-        kinematics=KinematicsSpec("pinocchio", model_path="robot.urdf", base_link="base", end_link="ee")
+        kinematics=KinematicsSpec("literobo", model_path="robot.urdf", base_link="base", end_link="ee")
     )
 
     assert dof == 6
@@ -70,7 +70,7 @@ def test_render_program_infers_dof_from_model_and_calls_renderer(monkeypatch):
 
     monkeypatch.setattr(render_play, "play", fake_play)
 
-    trajectory = workflows.render_program("robot.urdf", program="waypoints", hz=20.0)
+    trajectory = workflows.render_program("robot.urdf", hz=20.0)
 
     assert isinstance(trajectory, Trajectory)
     assert calls["model_path"] == "robot.urdf"
@@ -92,11 +92,11 @@ def test_render_play_resolves_kinematics_spec(monkeypatch):
         "robot.urdf",
         [[0.0, 1.0]],
         renderer="meshcat",
-        kinematics=KinematicsSpec("pinocchio", model_path="robot.urdf", base_link="base", end_link="ee"),
+        kinematics=KinematicsSpec("literobo", model_path="robot.urdf", base_link="base", end_link="ee"),
     )
 
     assert calls["renderer"] == "meshcat"
-    assert calls["kwargs"]["kinematics_backend"] == "pinocchio"
+    assert calls["kwargs"]["kinematics_backend"] == "literobo"
     assert calls["kwargs"]["kinematics_model_path"] == "robot.urdf"
     assert calls["kwargs"]["base_link"] == "base"
     assert calls["kwargs"]["end_link"] == "ee"
@@ -157,7 +157,7 @@ def test_switch_renderer_example_supports_kinematics_backend(monkeypatch):
 
     monkeypatch.setattr(module, "render_program", fake_render_program)
     monkeypatch.setattr(module, "RENDERER", "meshcat")
-    monkeypatch.setattr(module, "BACKEND", "pinocchio")
+    monkeypatch.setattr(module, "BACKEND", "literobo")
     monkeypatch.setattr(module, "MODEL", pathlib.Path("robot.urdf"))
     monkeypatch.setattr(module, "BASE_LINK", "base")
     monkeypatch.setattr(module, "END_LINK", "ee")
@@ -166,7 +166,7 @@ def test_switch_renderer_example_supports_kinematics_backend(monkeypatch):
     assert calls["args"][0] == pathlib.Path("robot.urdf")
     assert calls["kwargs"]["renderer"] == "meshcat"
     assert isinstance(calls["kwargs"]["kinematics"], KinematicsSpec)
-    assert calls["kwargs"]["kinematics"].backend == "pinocchio"
+    assert calls["kwargs"]["kinematics"].backend == "literobo"
     assert calls["kwargs"]["kinematics"].model_path is None
     assert calls["kwargs"]["kinematics"].base_link == "base"
     assert calls["kwargs"]["kinematics"].end_link == "ee"

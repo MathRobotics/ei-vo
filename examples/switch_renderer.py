@@ -19,7 +19,7 @@ from ei_vo import KinematicsSpec, RenderSpec, render_program
 ROOT = Path(__file__).resolve().parent
 MODEL = ROOT / "models/three_dof_arm.urdf"
 RENDERER = "matplotlib"  # Change to "meshcat" or "pyrender".
-BACKEND = None  # Change to "pinocchio" or "literobo" when you need kinematics.
+BACKEND = None  # Change to "literobo" when you need kinematics.
 BASE_LINK = "base"
 END_LINK = "ee"
 
@@ -42,11 +42,10 @@ def main() -> None:
         kwargs = {"hz": 120.0}
     elif RENDERER == "meshcat":
         renderer = RENDERER
-        kwargs = {"program": "waypoints", "hz": 240.0}
+        kwargs = {"hz": 240.0}
     elif RENDERER == "pyrender":
         renderer = "pyrender"
         kwargs = {
-            "program": "waypoints",
             "hz": 240.0,
             "record_path": ROOT.parent / "recordings" / "switch_renderer_pyrender.mp4",
         }

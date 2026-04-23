@@ -1,17 +1,13 @@
-"""Offscreen URDF rendering with pyrender and urdfpy."""
+"""URDF rendering with pyrender and urdfpy."""
 
 from __future__ import annotations
 
-import collections
-import collections.abc
 import contextlib
-import fractions
 import math
 import os
 import pathlib
-import re
 import sys
-import types
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -23,6 +19,7 @@ from ..config import (
 )
 from ..core import FrameSequenceWriter, Trajectory
 from ..modeling import load_robot_model
+from ._urdfpy import install_urdfpy_compat_shims
 
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".ppm"}
 _VIDEO_SUFFIXES = {".gif", ".mov", ".mp4", ".webm"}
@@ -50,56 +47,9 @@ def _require_urdf_model_path(model_path: str | pathlib.Path | None) -> pathlib.P
         raise FileNotFoundError(path)
     return path.resolve()
 
-
-def _parse_version_fallback(value: object):
-    text = str(value)
-    parts: list[tuple[int, object]] = []
-    for part in re.split(r"[^0-9A-Za-z]+", text):
-        if not part:
-            continue
-        if part.isdigit():
-            parts.append((0, int(part)))
-        else:
-            parts.append((1, part.lower()))
-    return tuple(parts)
-
-
 def _install_urdfpy_compat_shims() -> None:
     """Patch stdlib and NumPy symbols needed by urdfpy's pinned networkx 2.2."""
-
-    for name in ("Iterable", "Mapping", "MutableMapping", "Sequence", "Set"):
-        if not hasattr(collections, name):
-            setattr(collections, name, getattr(collections.abc, name))
-
-    if not hasattr(fractions, "gcd"):
-        fractions.gcd = math.gcd  # type: ignore[attr-defined]
-
-    numpy_aliases = {
-        "bool": bool,
-        "complex_": np.complex128,
-        "float": float,
-        "float_": np.float64,
-        "int": int,
-        "int_": np.int64,
-        "object": object,
-        "unicode_": np.str_,
-    }
-    for name, value in numpy_aliases.items():
-        if name not in np.__dict__:
-            setattr(np, name, value)
-
-    if "pkg_resources" not in sys.modules:
-        pkg_resources = types.ModuleType("pkg_resources")
-
-        def parse_version(value: object):
-            try:
-                from packaging.version import parse as packaging_parse_version
-            except Exception:
-                return _parse_version_fallback(value)
-            return packaging_parse_version(str(value))
-
-        pkg_resources.parse_version = parse_version  # type: ignore[attr-defined]
-        sys.modules["pkg_resources"] = pkg_resources
+    install_urdfpy_compat_shims()
 
 
 def _is_forwarded_x11_display(display: str | None) -> bool:
@@ -140,8 +90,16 @@ def _prepare_pyopengl_platform() -> dict[str, object]:
     }
 
 
-def _import_runtime_dependencies():
-    runtime = _prepare_pyopengl_platform()
+def _current_pyopengl_platform() -> dict[str, object]:
+    platform = os.environ.get("PYOPENGL_PLATFORM")
+    return {
+        "platform": None if platform is None else platform.strip().lower(),
+        "auto_selected": False,
+    }
+
+
+def _import_runtime_dependencies(*, interactive: bool = False):
+    runtime = _current_pyopengl_platform() if interactive else _prepare_pyopengl_platform()
     _install_urdfpy_compat_shims()
     try:
         import pyrender
@@ -199,6 +157,34 @@ def _raise_offscreen_context_error(exc: Exception, runtime: dict[str, object]) -
         "The 'pyrender' renderer could not create an offscreen OpenGL context. "
         "Install EGL or OSMesa and, if needed, set PYOPENGL_PLATFORM=egl or osmesa."
     ) from exc
+
+
+def _raise_viewer_context_error(exc: Exception, runtime: dict[str, object]) -> None:
+    platform = runtime.get("platform")
+    platform_hint = "" if platform is None else f" Current PYOPENGL_PLATFORM={platform!r}."
+    raise RuntimeError(
+        "The 'pyrender' live viewer could not create an onscreen window or OpenGL context. "
+        "Run it from a desktop session with an active display server, or use offscreen export instead."
+        f"{platform_hint}"
+    ) from exc
+
+
+def _is_numpy_compat_error(exc: Exception) -> bool:
+    message = str(exc)
+    return (
+        isinstance(exc, AttributeError)
+        and "NumPy 2.0 release" in message
+        and "np." in message
+    )
+
+
+def _raise_viewer_startup_error(exc: Exception, runtime: dict[str, object]) -> None:
+    if _is_numpy_compat_error(exc):
+        raise RuntimeError(
+            "The 'pyrender' live viewer hit a NumPy compatibility error during startup. "
+            "The installed pyrender still referenced a removed NumPy alias."
+        ) from exc
+    _raise_viewer_context_error(exc, runtime)
 
 
 def _resolve_record_output_path(record_path: str | pathlib.Path) -> tuple[pathlib.Path, str]:
@@ -412,6 +398,27 @@ def _resolve_camera_pose(
     return _look_at_pose(eye, lookat), lookat, distance, scene_scale
 
 
+def _camera_settings_from_pose(
+    camera_pose: np.ndarray,
+    lookat: np.ndarray,
+) -> CameraSettings:
+    pose = np.asarray(camera_pose, dtype=float)
+    eye = pose[:3, 3]
+    offset = eye - np.asarray(lookat, dtype=float)
+    distance = float(np.linalg.norm(offset))
+    if distance <= 1e-12:
+        raise ValueError("camera pose and lookat must not coincide.")
+
+    azimuth = float(math.degrees(math.atan2(offset[1], offset[0])))
+    elevation = float(math.degrees(math.atan2(offset[2], np.hypot(offset[0], offset[1]))))
+    return CameraSettings(
+        distance=distance,
+        azimuth=azimuth,
+        elevation=elevation,
+        lookat=np.asarray(lookat, dtype=float).copy(),
+    )
+
+
 def _make_light_pose(lookat: np.ndarray, distance: float, *, azimuth: float, elevation: float) -> np.ndarray:
     azimuth_rad = math.radians(azimuth)
     elevation_rad = math.radians(elevation)
@@ -506,6 +513,66 @@ def _delete_renderer(renderer) -> None:
         close()
 
 
+def _extract_viewer_camera_settings(viewer, *, fallback_lookat: np.ndarray) -> CameraSettings:
+    camera_node = getattr(viewer, "_camera_node", None)
+    if camera_node is None or getattr(camera_node, "matrix", None) is None:
+        raise RuntimeError("The pyrender viewer did not expose a camera pose.")
+
+    trackball = getattr(viewer, "_trackball", None)
+    lookat = getattr(trackball, "_n_target", None)
+    if lookat is None:
+        lookat = fallback_lookat
+    return _camera_settings_from_pose(np.asarray(camera_node.matrix, dtype=float), np.asarray(lookat, dtype=float))
+
+
+def _play_interactive(
+    pyrender,
+    scene,
+    mesh_nodes: list[object],
+    frame_poses: tuple[tuple[np.ndarray, ...], ...],
+    *,
+    playback,
+    lookat: np.ndarray,
+    viewport_size: tuple[int, int],
+) -> CameraSettings:
+    try:
+        viewer = pyrender.Viewer(
+            scene,
+            viewport_size=viewport_size,
+            run_in_thread=True,
+            view_center=np.asarray(lookat, dtype=float),
+            window_title="ei-vo Pyrender Viewer",
+        )
+    except Exception as exc:
+        _raise_viewer_startup_error(exc, _current_pyopengl_platform())
+
+    frame_index = 0
+    try:
+        while viewer.is_active:
+            viewer.render_lock.acquire()
+            try:
+                _apply_frame_poses(scene, mesh_nodes, frame_poses[frame_index])
+            finally:
+                viewer.render_lock.release()
+
+            time.sleep(playback.step_dt)
+            if frame_index + 1 < len(frame_poses):
+                frame_index += 1
+                continue
+            if playback.loop:
+                frame_index = 0
+                continue
+            break
+
+        while viewer.is_active:
+            time.sleep(1.0 / 30.0)
+    finally:
+        if viewer.is_active:
+            viewer.close_external()
+
+    return _extract_viewer_camera_settings(viewer, fallback_lookat=lookat)
+
+
 def play(
     model_path: str | pathlib.Path | None,
     traj: Trajectory | np.ndarray | list[list[float]] | list[float],
@@ -517,13 +584,14 @@ def play(
     record_fps: float | None = None,
     record_size: tuple[int, int] | None = None,
     record_frames_dir: str | pathlib.Path | None = None,
+    interactive: bool = False,
     *,
     kinematics_backend: str | None = None,
     kinematics_model_path: str | pathlib.Path | None = None,
     base_link: str | None = None,
     end_link: str | None = None,
-) -> None:
-    """Render a URDF trajectory offscreen via pyrender."""
+) -> CameraSettings | None:
+    """Render a URDF trajectory via pyrender."""
 
     del kinematics_backend, kinematics_model_path, base_link, end_link
 
@@ -538,16 +606,21 @@ def play(
         record_size=record_size,
         record_frames_dir=record_frames_dir,
     )
-    if recording is None:
+    if interactive and recording is not None:
+        raise ValueError("record_path is not supported when using the interactive pyrender viewer.")
+    if not interactive and recording is None:
         raise ValueError("The 'pyrender' renderer requires record_path because it only supports offscreen export.")
-    if playback.loop:
+    if playback.loop and not interactive:
         raise ValueError("loop is not supported for the pyrender renderer.")
 
-    output_path, output_mode = _resolve_record_output_path(recording.path)
-    if output_mode == "image" and recording.frames_dir is not None:
-        raise ValueError("record_frames_dir is only supported for pyrender video output.")
+    output_path = None
+    output_mode = None
+    if recording is not None:
+        output_path, output_mode = _resolve_record_output_path(recording.path)
+        if output_mode == "image" and recording.frames_dir is not None:
+            raise ValueError("record_frames_dir is only supported for pyrender video output.")
 
-    pyrender, URDF, trimesh, runtime = _import_runtime_dependencies()
+    pyrender, URDF, trimesh, runtime = _import_runtime_dependencies(interactive=interactive)
     traj = Trajectory.coerce(traj)
     robot_model = load_robot_model(model_path, expected_dof=traj.dof)
     positions = robot_model.clamp(traj.q)
@@ -555,7 +628,7 @@ def play(
     visuals = _prepare_visuals(urdf_robot, trimesh)
     frame_poses, scene_bounds = _build_pose_cache(urdf_robot, visuals, robot_model.joint_names, positions)
 
-    viewport_size = _coerce_record_size(recording.size)
+    viewport_size = _coerce_record_size(record_size if interactive else recording.size)
     camera_pose, lookat, distance, scene_scale = _resolve_camera_pose(scene_bounds, camera_settings)
     scene, mesh_nodes = _build_scene(
         pyrender,
@@ -567,6 +640,17 @@ def play(
         scene_scale=scene_scale,
         viewport_size=viewport_size,
     )
+
+    if interactive:
+        return _play_interactive(
+            pyrender,
+            scene,
+            mesh_nodes,
+            frame_poses,
+            playback=playback,
+            lookat=lookat,
+            viewport_size=viewport_size,
+        )
 
     width, height = viewport_size
     try:
@@ -590,13 +674,14 @@ def play(
                     writer.append_data(color)
             finally:
                 writer.close()
-            return
+            return None
 
         _apply_frame_poses(scene, mesh_nodes, frame_poses[-1])
         color, _depth = renderer.render(scene)
         _write_image(output_path, color)
     finally:
         _delete_renderer(renderer)
+    return None
 
 
 __all__ = ["play"]

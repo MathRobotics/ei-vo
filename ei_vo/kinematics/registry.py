@@ -8,7 +8,6 @@ from types import ModuleType
 _BACKEND_MODULES: dict[str, ModuleType] = {}
 _BUILTIN_BACKENDS: dict[str, str] = {
     "literobo": "ei_vo.kinematics.literobo_backend",
-    "pinocchio": "ei_vo.kinematics.pinocchio_backend",
 }
 
 

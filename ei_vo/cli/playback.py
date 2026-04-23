@@ -9,6 +9,7 @@ from typing import Sequence
 
 from .. import play
 from ..backends import KinematicsSpec
+from ..config import CameraSettings, coerce_camera_settings, save_camera_settings
 from ..core import Trajectory, resolve_record_destination
 from ..kinematics import available_kinematics_backends
 from ..modeling import load_robot_model
@@ -56,9 +57,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--program",
         type=_parse_program_mode,
-        default="waypoints",
-        metavar="{waypoints,sine}",
-        help="Built-in trajectory program to use when --trajectries is omitted",
+        choices=available_programs(),
+        default=argparse.SUPPRESS,
+        help="Built-in motion program to use when --trajectries is omitted",
     )
     parser.add_argument(
         "--demo",
@@ -73,12 +74,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cameraAzimuth", type=float, default=None, help="Camera azimuth [deg]")
     parser.add_argument("--cameraElevation", type=float, default=None, help="Camera elevation [deg]")
     parser.add_argument(
+        "--cameraFile",
+        default=None,
+        help="Camera preset JSON path or MeshCat scene.json to reuse",
+    )
+    parser.add_argument(
         "--cameraLookat",
         type=float,
         nargs=3,
         metavar=("X", "Y", "Z"),
         default=None,
         help="Camera look-at point",
+    )
+    parser.add_argument(
+        "--saveCamera",
+        default=None,
+        help="Write the resolved camera settings to a reusable JSON preset",
     )
     parser.add_argument(
         "--record",
@@ -145,12 +156,13 @@ def build_trajectory(args: argparse.Namespace) -> Trajectory:
         return trajectory
 
     dof = _resolve_model_dof(args, trajectory_dof=None)
+    program = getattr(args, "program", "waypoints")
     return trajectory_from_program(
         dof,
-        program=args.program,
+        program=program,
         hz=args.hz,
         segment_duration=args.segT,
-        meta={"program": args.program},
+        meta={"program": program},
     )
 
 
@@ -190,21 +202,43 @@ def _build_kinematics_spec(args: argparse.Namespace) -> KinematicsSpec | None:
     )
 
 
-def _build_camera(args: argparse.Namespace) -> dict[str, object] | None:
-    if (
-        args.cameraDistance is None
-        and args.cameraAzimuth is None
-        and args.cameraElevation is None
-        and args.cameraLookat is None
-    ):
-        return None
+def _camera_mapping(camera: object) -> dict[str, object]:
+    settings = coerce_camera_settings(camera)
+    if settings is None:
+        raise ValueError("camera must not be None.")
 
     return {
-        "distance": args.cameraDistance,
-        "azimuth": args.cameraAzimuth,
-        "elevation": args.cameraElevation,
-        "lookat": tuple(args.cameraLookat) if args.cameraLookat is not None else None,
+        "distance": settings.distance,
+        "azimuth": settings.azimuth,
+        "elevation": settings.elevation,
+        "lookat": None if settings.lookat is None else tuple(float(value) for value in settings.lookat),
     }
+
+
+def _camera_overrides(args: argparse.Namespace) -> dict[str, object]:
+    overrides: dict[str, object] = {}
+    if args.cameraDistance is not None:
+        overrides["distance"] = args.cameraDistance
+    if args.cameraAzimuth is not None:
+        overrides["azimuth"] = args.cameraAzimuth
+    if args.cameraElevation is not None:
+        overrides["elevation"] = args.cameraElevation
+    if args.cameraLookat is not None:
+        overrides["lookat"] = tuple(args.cameraLookat)
+    return overrides
+
+
+def _build_camera(args: argparse.Namespace) -> dict[str, object] | None:
+    base_camera = None if args.cameraFile is None else _camera_mapping(args.cameraFile)
+    overrides = _camera_overrides(args)
+    if base_camera is None and not overrides:
+        return None
+    if base_camera is None:
+        return overrides
+
+    merged = dict(base_camera)
+    merged.update(overrides)
+    return merged
 
 
 def _build_play_kwargs(args: argparse.Namespace, *, record_path: str | None) -> dict[str, object]:
@@ -223,6 +257,23 @@ def _build_play_kwargs(args: argparse.Namespace, *, record_path: str | None) -> 
     return kwargs
 
 
+def _save_resolved_camera(
+    *,
+    save_path: str | None,
+    requested_camera: object,
+    play_result: object,
+) -> None:
+    if save_path is None:
+        return
+
+    camera = play_result if isinstance(play_result, CameraSettings) else requested_camera
+    if camera is None:
+        raise ValueError("Specify --cameraFile or camera options when using --saveCamera.")
+
+    saved_camera_path = save_camera_settings(camera, save_path)
+    print(f"[ei-vo] saved camera preset to {saved_camera_path}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -232,7 +283,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"[ei-vo] saving output to {record_path}")
 
     trajectory = build_trajectory(args)
-    play(args.model, trajectory, **_build_play_kwargs(args, record_path=record_path))
+    play_kwargs = _build_play_kwargs(args, record_path=record_path)
+    play_result = play(args.model, trajectory, **play_kwargs)
+    _save_resolved_camera(
+        save_path=args.saveCamera,
+        requested_camera=play_kwargs["camera"],
+        play_result=play_result,
+    )
     return 0
 
 

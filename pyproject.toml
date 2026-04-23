@@ -22,13 +22,11 @@ dependencies = [
 [project.optional-dependencies]
 all = [
     "meshcat>=0.3.2",
-    "pin>=3.7.0",
     "pyrender>=0.1.45,<0.2",
     "urdfpy>=0.0.22,<0.1",
     "literobo",
 ]
 kinematics = [
-    "pin>=3.7.0",
     "literobo",
 ]
 literobo = [
@@ -36,10 +34,7 @@ literobo = [
 ]
 meshcat = [
     "meshcat>=0.3.2",
-    "pin>=3.7.0",
-]
-pinocchio = [
-    "pin>=3.7.0",
+    "urdfpy>=0.0.22,<0.1",
 ]
 pyrender = [
     "pyrender>=0.1.45,<0.2",
@@ -51,7 +46,6 @@ recording = [
 ]
 dev = [
     "meshcat>=0.3.2",
-    "pin>=3.7.0",
     "pyrender>=0.1.45,<0.2",
     "pytest",
     "urdfpy>=0.0.22,<0.1",
@@ -61,3 +55,4 @@ dev = [
 [project.scripts]
 ei-vo-play = "ei_vo.cli.playback:main"
 ei-vo-demo = "ei_vo.cli.demo:main"
+ei-vo-view = "ei_vo.cli.view:main"

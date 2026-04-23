@@ -238,91 +238,185 @@ def _install_dummy_meshcat(monkeypatch):
     animation = types.ModuleType("meshcat.animation")
     animation.Animation = DummyAnimation
 
+    class DummyBox:
+        def __init__(self, lengths):
+            self.lengths = np.asarray(lengths, dtype=float)
+
+    class DummyCylinder:
+        def __init__(self, height, radius=1.0, radiusTop=None, radiusBottom=None):
+            self.height = float(height)
+            self.radius = float(radius)
+            self.radiusTop = None if radiusTop is None else float(radiusTop)
+            self.radiusBottom = None if radiusBottom is None else float(radiusBottom)
+
+    class DummySphere:
+        def __init__(self, radius):
+            self.radius = float(radius)
+
+    class DummyTriangularMeshGeometry:
+        def __init__(self, vertices, faces, color=None):
+            self.vertices = np.asarray(vertices, dtype=float)
+            self.faces = np.asarray(faces, dtype=np.uint32)
+            self.color = None if color is None else np.asarray(color, dtype=float)
+
+    class DummyMeshLambertMaterial:
+        def __init__(self, **kwargs):
+            self.kwargs = dict(kwargs)
+
+    geometry = types.ModuleType("meshcat.geometry")
+    geometry.Box = DummyBox
+    geometry.Cylinder = DummyCylinder
+    geometry.Sphere = DummySphere
+    geometry.TriangularMeshGeometry = DummyTriangularMeshGeometry
+    geometry.MeshLambertMaterial = DummyMeshLambertMaterial
+
     meshcat = types.ModuleType("meshcat")
+    meshcat.__path__ = []
     meshcat.Visualizer = DummyVisualizer
     meshcat.animation = animation
+    meshcat.geometry = geometry
 
     monkeypatch.setitem(sys.modules, "meshcat", meshcat)
     monkeypatch.setitem(sys.modules, "meshcat.animation", animation)
+    monkeypatch.setitem(sys.modules, "meshcat.geometry", geometry)
     return captured
 
 
-def _install_dummy_pinocchio_meshcat(monkeypatch):
-    captured = {"build_calls": [], "loaded_roots": [], "displayed": []}
+def _install_dummy_urdfpy_meshcat(monkeypatch):
+    captured = {"configs": []}
 
-    class DummyModel:
-        nq = 2
+    class DummyMesh:
+        def __init__(self, vertices, faces):
+            self.vertices = np.asarray(vertices, dtype=float)
+            self.faces = np.asarray(faces, dtype=np.uint32)
 
+    class DummyMaterial:
+        def __init__(self, color):
+            self.color = np.asarray(color, dtype=float)
+
+    class DummyBoxGeometry:
+        def __init__(self, size):
+            self.size = np.asarray(size, dtype=float)
+
+    class DummyCylinderGeometry:
+        def __init__(self, radius, length):
+            self.radius = float(radius)
+            self.length = float(length)
+
+    class DummyMeshGeometry:
+        def __init__(self, meshes, scale=None):
+            self.meshes = list(meshes)
+            self.scale = None if scale is None else np.asarray(scale, dtype=float)
+
+    class DummyGeometry:
+        def __init__(self, *, box=None, cylinder=None, sphere=None, mesh=None):
+            self.box = box
+            self.cylinder = cylinder
+            self.sphere = sphere
+            self.mesh = mesh
+
+    class DummyVisual:
+        def __init__(self, geometry, origin=None, material=None):
+            self.geometry = geometry
+            self.origin = np.eye(4, dtype=float) if origin is None else np.asarray(origin, dtype=float)
+            self.material = material
+
+    class DummyLink:
+        def __init__(self, name, visuals):
+            self.name = name
+            self.visuals = list(visuals)
+
+    class DummySphereGeometry:
+        def __init__(self, radius):
+            self.radius = float(radius)
+
+    class DummyRobot:
         def __init__(self):
-            self.lowerPositionLimit = np.array([-0.5, -0.25], dtype=float)
-            self.upperPositionLimit = np.array([0.5, 0.25], dtype=float)
+            base_origin = np.eye(4, dtype=float)
+            base_origin[:3, 3] = np.array([0.0, 0.0, 0.05], dtype=float)
+            link_origin = np.eye(4, dtype=float)
+            link_origin[:3, 3] = np.array([0.0, 0.0, 0.15], dtype=float)
 
-    class DummyGeometryModel:
-        def __init__(self):
-            self.geometryObjects = [types.SimpleNamespace(name="base"), types.SimpleNamespace(name="ee")]
+            mesh = DummyMesh(
+                vertices=[
+                    [-0.02, -0.02, 0.0],
+                    [0.02, -0.02, 0.0],
+                    [0.0, 0.02, 0.0],
+                ],
+                faces=[[0, 1, 2]],
+            )
 
-    class DummyMeshcatVisualizer:
-        def __init__(self, model, collision_model=None, visual_model=None, **kwargs):
-            del kwargs
-            self.model = model
-            self.collision_model = collision_model
-            self.visual_model = visual_model
-            self.viewer = None
-            self.viewerRootNodeName = None
-            self.viewerVisualGroupName = None
-            self.viewerCollisionGroupName = None
+            self.base = DummyLink(
+                "base",
+                [
+                    DummyVisual(
+                        DummyGeometry(box=DummyBoxGeometry([0.2, 0.2, 0.1])),
+                        origin=base_origin,
+                        material=DummyMaterial([0.8, 0.2, 0.2, 1.0]),
+                    )
+                ],
+            )
+            self.link1 = DummyLink(
+                "link1",
+                [
+                    DummyVisual(
+                        DummyGeometry(cylinder=DummyCylinderGeometry(0.03, 0.3)),
+                        origin=link_origin,
+                        material=DummyMaterial([0.2, 0.4, 0.8, 1.0]),
+                    )
+                ],
+            )
+            self.ee = DummyLink(
+                "ee",
+                [
+                    DummyVisual(
+                        DummyGeometry(
+                            mesh=DummyMeshGeometry([mesh], scale=[1.0, 1.0, 1.0]),
+                        ),
+                        material=DummyMaterial([0.2, 0.8, 0.4, 0.6]),
+                    ),
+                    DummyVisual(
+                        DummyGeometry(sphere=DummySphereGeometry(0.02)),
+                        material=DummyMaterial([0.9, 0.9, 0.1, 1.0]),
+                    ),
+                ],
+            )
+            self.links = [self.base, self.link1, self.ee]
 
-        def initViewer(self, viewer=None, open=False, loadModel=False, zmq_url=None):
-            del loadModel, zmq_url
-            self.viewer = viewer
-            if open:
-                self.viewer.open()
+        def link_fk(self, cfg=None):
+            config = {key: float(value) for key, value in dict(cfg or {}).items()}
+            captured["configs"].append(config)
+            joint1 = float(config.get("joint1", 0.0))
+            joint2 = float(config.get("joint2", 0.0))
 
-        def loadViewerModel(
-            self,
-            rootNodeName="pinocchio",
-            color=None,
-            collision_color=None,
-            visual_color=None,
-        ):
-            del color, collision_color, visual_color
-            self.viewerRootNodeName = rootNodeName
-            self.viewerVisualGroupName = f"{rootNodeName}/visuals"
-            self.viewerCollisionGroupName = f"{rootNodeName}/collisions"
-            captured["loaded_roots"].append(rootNodeName)
-            self.viewer[f"{self.viewerVisualGroupName}/base"].set_object("base")
-            self.viewer[f"{self.viewerVisualGroupName}/ee"].set_object("ee")
-            self.viewer[self.viewerCollisionGroupName].set_property("visible", False)
-            self.viewer[self.viewerVisualGroupName].set_property("visible", True)
+            base_pose = np.eye(4, dtype=float)
+            link1_pose = np.eye(4, dtype=float)
+            link1_pose[0, 3] = joint1
+            ee_pose = np.eye(4, dtype=float)
+            ee_pose[0, 3] = joint1 + joint2
 
-        def display(self, q=None):
-            row = np.asarray(q, dtype=float)
-            captured["displayed"].append(row.copy())
-            self.viewer[f"{self.viewerVisualGroupName}/base"].set_transform(np.eye(4))
-            transform = np.eye(4)
-            transform[0, 3] = row.sum()
-            self.viewer[f"{self.viewerVisualGroupName}/ee"].set_transform(transform)
+            return {
+                self.base: base_pose,
+                self.link1: link1_pose,
+                self.ee: ee_pose,
+            }
 
-    def build_models_from_urdf(path, **kwargs):
-        captured["build_calls"].append({"path": path, "kwargs": kwargs})
-        return DummyModel(), DummyGeometryModel(), DummyGeometryModel()
+    class DummyURDF:
+        @staticmethod
+        def load(path):
+            captured["loaded_path"] = path
+            return DummyRobot()
 
-    pinocchio = types.ModuleType("pinocchio")
-    pinocchio.buildModelsFromUrdf = build_models_from_urdf
+    urdfpy = types.ModuleType("urdfpy")
+    urdfpy.URDF = DummyURDF
 
-    visualize = types.ModuleType("pinocchio.visualize")
-    visualize.MeshcatVisualizer = DummyMeshcatVisualizer
-    pinocchio.visualize = visualize
-
-    monkeypatch.setitem(sys.modules, "pinocchio", pinocchio)
-    monkeypatch.setitem(sys.modules, "pinocchio.visualize", visualize)
+    monkeypatch.setitem(sys.modules, "urdfpy", urdfpy)
     return captured
 
 
 def test_render_package_is_lazy_without_optional_renderers():
     sys.modules.pop("ei_vo.render", None)
     sys.modules.pop("meshcat", None)
-    sys.modules.pop("pinocchio", None)
     sys.modules.pop("pyrender", None)
 
     render = importlib.import_module("ei_vo.render")
@@ -505,7 +599,7 @@ def test_meshcat_visualizer_uses_default_server(monkeypatch):
 
 def test_meshcat_renderer_saves_standalone_html(monkeypatch, tmp_path):
     captured = _install_dummy_meshcat(monkeypatch)
-    pinocchio_captured = _install_dummy_pinocchio_meshcat(monkeypatch)
+    urdfpy_captured = _install_dummy_urdfpy_meshcat(monkeypatch)
     sys.modules.pop("ei_vo.render.render_meshcat", None)
     meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
     monkeypatch.setattr(meshcat_renderer.time, "sleep", lambda _: None)
@@ -523,31 +617,28 @@ def test_meshcat_renderer_saves_standalone_html(monkeypatch, tmp_path):
         record_path=output_path,
     )
 
-    expected_package_dirs = [
-        candidate.as_posix()
-        for candidate in (model_path.parent.resolve(), *model_path.parent.resolve().parents)
+    assert urdfpy_captured["loaded_path"] == model_path.resolve().as_posix()
+    assert urdfpy_captured["configs"] == [
+        {"joint1": 1.0, "joint2": -0.5},
+        {"joint1": -1.0, "joint2": 0.5},
     ]
-    assert pinocchio_captured["build_calls"] == [
-        {
-            "path": model_path.resolve().as_posix(),
-            "kwargs": {"package_dirs": expected_package_dirs},
-        }
-    ]
-    assert pinocchio_captured["loaded_roots"] == ["pinocchio"]
-    np.testing.assert_allclose(pinocchio_captured["displayed"][0], [0.5, -0.25])
-    np.testing.assert_allclose(pinocchio_captured["displayed"][1], [-0.5, 0.25])
-    assert "pinocchio/visuals/base" in captured["objects"]
-    assert "pinocchio/visuals/ee" in captured["objects"]
-    assert len(captured["transforms"]["pinocchio/visuals/ee"]) == trajectory.steps
+    assert "robot/visuals/base" in captured["objects"]
+    assert "robot/visuals/link1" in captured["objects"]
+    assert "robot/visuals/ee" in captured["objects"]
+    assert "robot/visuals/ee_1" in captured["objects"]
+    assert captured["properties"][("robot/collisions", "visible")] is False
+    assert captured["properties"][("robot/visuals", "visible")] is True
+    assert len(captured["transforms"]["robot/visuals/ee"]) == trajectory.steps
     assert len(captured["animations"]) == 1
-    assert len(captured["animations"][0]["animation"].frames["pinocchio/visuals/ee"]) == trajectory.steps
+    assert len(captured["animations"][0]["animation"].frames["robot/visuals/ee"]) == trajectory.steps
+    np.testing.assert_allclose(captured["transforms"]["robot/visuals/ee"][0][:3, 3], [0.5, 0.0, 0.0])
     assert output_path.with_suffix(".html").read_text(encoding="utf-8") == captured["html"]
     assert opened_html == [output_path.with_suffix(".html")]
 
 
 def test_meshcat_renderer_applies_lookat_to_urdf_visualizer(monkeypatch, tmp_path):
     captured = _install_dummy_meshcat(monkeypatch)
-    _install_dummy_pinocchio_meshcat(monkeypatch)
+    _install_dummy_urdfpy_meshcat(monkeypatch)
     sys.modules.pop("ei_vo.render.render_meshcat", None)
     meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
     monkeypatch.setattr(meshcat_renderer.time, "sleep", lambda _: None)
@@ -570,9 +661,31 @@ def test_meshcat_renderer_applies_lookat_to_urdf_visualizer(monkeypatch, tmp_pat
     )
 
 
+def test_meshcat_renderer_can_hold_browser_open(monkeypatch, tmp_path):
+    captured = _install_dummy_meshcat(monkeypatch)
+    _install_dummy_urdfpy_meshcat(monkeypatch)
+    sys.modules.pop("ei_vo.render.render_meshcat", None)
+    meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
+    monkeypatch.setattr(meshcat_renderer.time, "sleep", lambda _: None)
+    hold_calls = []
+    monkeypatch.setattr(meshcat_renderer, "_wait_until_interrupted", lambda interval_s=0.5: hold_calls.append(interval_s))
+
+    model_path = _write_demo_urdf(tmp_path / "robot.urdf")
+    meshcat_renderer.play(
+        model_path,
+        Trajectory.from_positions(np.zeros((1, 2), dtype=float), dt=0.1),
+        hz=20.0,
+        open_browser=True,
+        hold_open=True,
+    )
+
+    assert captured["opened"] == 1
+    assert hold_calls == [0.5]
+
+
 def test_meshcat_renderer_rejects_record_size(monkeypatch, tmp_path):
     _install_dummy_meshcat(monkeypatch)
-    _install_dummy_pinocchio_meshcat(monkeypatch)
+    _install_dummy_urdfpy_meshcat(monkeypatch)
     sys.modules.pop("ei_vo.render.render_meshcat", None)
     meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
 
@@ -587,7 +700,7 @@ def test_meshcat_renderer_rejects_record_size(monkeypatch, tmp_path):
 
 def test_meshcat_renderer_rejects_record_frames_dir(monkeypatch, tmp_path):
     _install_dummy_meshcat(monkeypatch)
-    _install_dummy_pinocchio_meshcat(monkeypatch)
+    _install_dummy_urdfpy_meshcat(monkeypatch)
     sys.modules.pop("ei_vo.render.render_meshcat", None)
     meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
 
@@ -602,7 +715,7 @@ def test_meshcat_renderer_rejects_record_frames_dir(monkeypatch, tmp_path):
 
 def test_meshcat_renderer_rejects_non_urdf(monkeypatch, tmp_path):
     _install_dummy_meshcat(monkeypatch)
-    _install_dummy_pinocchio_meshcat(monkeypatch)
+    _install_dummy_urdfpy_meshcat(monkeypatch)
     sys.modules.pop("ei_vo.render.render_meshcat", None)
     meshcat_renderer = importlib.import_module("ei_vo.render.render_meshcat")
     model_path = tmp_path / "robot.xml"
@@ -614,7 +727,7 @@ def test_meshcat_renderer_rejects_non_urdf(monkeypatch, tmp_path):
 
 def test_generic_play_dispatches_meshcat_renderer(monkeypatch, tmp_path):
     captured = _install_dummy_meshcat(monkeypatch)
-    _install_dummy_pinocchio_meshcat(monkeypatch)
+    _install_dummy_urdfpy_meshcat(monkeypatch)
     sys.modules.pop("ei_vo.render.render_meshcat", None)
     sys.modules.pop("ei_vo.render", None)
     render = importlib.import_module("ei_vo.render")

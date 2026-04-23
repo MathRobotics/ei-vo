@@ -9,6 +9,23 @@ import pytest
 from ei_vo.core import RobotModel, Trajectory
 
 
+def test_urdfpy_compat_shims_restore_numpy_removed_aliases(monkeypatch):
+    compat = importlib.import_module("ei_vo.render._urdfpy")
+
+    for name in ("infty", "Infinity", "Inf", "float", "float_", "int", "bool"):
+        monkeypatch.delitem(compat.np.__dict__, name, raising=False)
+
+    compat.install_urdfpy_compat_shims()
+
+    assert compat.np.infty == compat.np.inf
+    assert compat.np.Infinity == compat.np.inf
+    assert compat.np.Inf == compat.np.inf
+    assert compat.np.float is float
+    assert compat.np.float_ is compat.np.float64
+    assert compat.np.int is int
+    assert compat.np.bool is bool
+
+
 def test_pyrender_auto_selects_egl_for_forwarded_display(monkeypatch):
     sys.modules.pop("ei_vo.render.render_pyrender", None)
     pyrender_renderer = importlib.import_module("ei_vo.render.render_pyrender")
@@ -78,6 +95,9 @@ def _install_dummy_pyrender_runtime(monkeypatch):
         "set_pose": [],
         "renders": [],
         "renderer_deleted": False,
+        "viewer_calls": [],
+        "viewer_lock_acquires": 0,
+        "viewer_lock_releases": 0,
     }
 
     class DummyNode:
@@ -137,12 +157,58 @@ def _install_dummy_pyrender_runtime(monkeypatch):
         def delete(self):
             captured["renderer_deleted"] = True
 
+    class DummyLock:
+        def acquire(self):
+            captured["viewer_lock_acquires"] += 1
+
+        def release(self):
+            captured["viewer_lock_releases"] += 1
+
+    class DummyViewer:
+        def __init__(
+            self,
+            scene,
+            viewport_size=None,
+            render_flags=None,
+            viewer_flags=None,
+            registered_keys=None,
+            run_in_thread=False,
+            **kwargs,
+        ):
+            del render_flags, registered_keys
+            self.scene = scene
+            self.viewport_size = viewport_size
+            self.run_in_thread = run_in_thread
+            self.viewer_flags = dict(viewer_flags or {})
+            self.viewer_flags.update(kwargs)
+            self.render_lock = DummyLock()
+            self.is_active = True
+            self._camera_node = types.SimpleNamespace(
+                matrix=np.asarray(scene.main_camera_node.pose, dtype=float).copy(),
+                camera=scene.main_camera_node.obj,
+            )
+            self._trackball = types.SimpleNamespace(
+                _n_target=np.asarray(self.viewer_flags.get("view_center", np.zeros(3)), dtype=float).copy()
+            )
+            captured["viewer_instance"] = self
+            captured["viewer_calls"].append(
+                {
+                    "viewport_size": viewport_size,
+                    "run_in_thread": run_in_thread,
+                    "viewer_flags": dict(self.viewer_flags),
+                }
+            )
+
+        def close_external(self):
+            self.is_active = False
+
     pyrender = types.ModuleType("pyrender")
     pyrender.Scene = DummyScene
     pyrender.Mesh = DummyMesh
     pyrender.PerspectiveCamera = DummyPerspectiveCamera
     pyrender.DirectionalLight = DummyDirectionalLight
     pyrender.OffscreenRenderer = DummyOffscreenRenderer
+    pyrender.Viewer = DummyViewer
 
     trimesh = types.ModuleType("trimesh")
     trimesh.creation = types.SimpleNamespace(
@@ -250,6 +316,32 @@ def test_pyrender_renderer_requires_record_path(monkeypatch, tmp_path):
         pyrender_renderer.play(model_path, [[0.0, 0.0]])
 
     assert "loaded_path" not in captured
+
+
+def test_pyrender_interactive_viewer_rejects_record_path(monkeypatch, tmp_path):
+    _install_dummy_pyrender_runtime(monkeypatch)
+    sys.modules.pop("ei_vo.render.render_pyrender", None)
+    pyrender_renderer = importlib.import_module("ei_vo.render.render_pyrender")
+    monkeypatch.setattr(
+        pyrender_renderer,
+        "load_robot_model",
+        lambda path, expected_dof=None: RobotModel(
+            name="robot",
+            joint_names=("joint1", "joint2"),
+            limits=np.array([[-1.0, 1.0], [-1.0, 1.0]], dtype=float),
+        ),
+    )
+
+    model_path = tmp_path / "robot.urdf"
+    model_path.write_text("<robot/>", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="interactive pyrender viewer"):
+        pyrender_renderer.play(
+            model_path,
+            [[0.0, 0.0]],
+            interactive=True,
+            record_path=tmp_path / "clip.mp4",
+        )
 
 
 def test_pyrender_renderer_rejects_record_frames_dir_for_images(monkeypatch, tmp_path):
@@ -378,6 +470,93 @@ def test_pyrender_renderer_records_video(monkeypatch, tmp_path):
     assert captured["renderer_deleted"] is True
     assert len(captured["renders"]) == 3
     assert len(captured["set_pose"]) == 6
+
+
+def test_pyrender_interactive_viewer_returns_final_camera(monkeypatch, tmp_path):
+    captured = _install_dummy_pyrender_runtime(monkeypatch)
+    sys.modules.pop("ei_vo.render.render_pyrender", None)
+    pyrender_renderer = importlib.import_module("ei_vo.render.render_pyrender")
+    monkeypatch.setattr(
+        pyrender_renderer,
+        "load_robot_model",
+        lambda path, expected_dof=None: RobotModel(
+            name="robot",
+            joint_names=("joint1", "joint2"),
+            limits=np.array([[-1.0, 1.0], [-1.0, 1.0]], dtype=float),
+        ),
+    )
+
+    final_pose = np.eye(4, dtype=float)
+    final_pose[:3, 3] = np.array([1.0, 2.0, 3.0], dtype=float)
+    final_pose[:3, 2] = np.array([0.0, 0.0, 1.0], dtype=float)
+    final_pose[:3, 0] = np.array([1.0, 0.0, 0.0], dtype=float)
+    final_pose[:3, 1] = np.array([0.0, -1.0, 0.0], dtype=float)
+
+    sleep_calls = {"count": 0}
+
+    def fake_sleep(_seconds):
+        sleep_calls["count"] += 1
+        viewer = captured.get("viewer_instance")
+        if viewer is not None and sleep_calls["count"] == 2:
+            viewer._camera_node.matrix = final_pose.copy()
+            viewer._trackball._n_target = np.array([1.0, 2.0, 1.0], dtype=float)
+            viewer.is_active = False
+
+    monkeypatch.setattr(pyrender_renderer.time, "sleep", fake_sleep)
+
+    model_path = tmp_path / "robot.urdf"
+    model_path.write_text("<robot/>", encoding="utf-8")
+    trajectory = Trajectory.from_positions([[0.0, 0.0], [0.1, 0.2]], dt=0.1)
+    camera = pyrender_renderer.play(
+        model_path,
+        trajectory,
+        interactive=True,
+        camera={"lookat": (0.0, 0.0, 0.0), "distance": 2.0},
+    )
+
+    assert len(captured["viewer_calls"]) == 1
+    assert captured["viewer_calls"][0]["run_in_thread"] is True
+    np.testing.assert_allclose(captured["viewer_calls"][0]["viewer_flags"]["view_center"], [0.0, 0.0, 0.0])
+    assert captured["viewer_lock_acquires"] >= 1
+    assert captured["viewer_lock_releases"] >= 1
+    assert len(captured["set_pose"]) >= 2
+    assert camera is not None
+    assert pytest.approx(camera.distance) == 2.0
+    assert pytest.approx(camera.azimuth) == 0.0
+    assert pytest.approx(camera.elevation) == 90.0
+    np.testing.assert_allclose(camera.lookat, [1.0, 2.0, 1.0])
+
+
+def test_pyrender_interactive_viewer_surfaces_numpy_compat_errors(monkeypatch, tmp_path):
+    _install_dummy_pyrender_runtime(monkeypatch)
+    sys.modules.pop("ei_vo.render.render_pyrender", None)
+    pyrender_renderer = importlib.import_module("ei_vo.render.render_pyrender")
+    monkeypatch.setattr(
+        pyrender_renderer,
+        "load_robot_model",
+        lambda path, expected_dof=None: RobotModel(
+            name="robot",
+            joint_names=("joint1", "joint2"),
+            limits=np.array([[-1.0, 1.0], [-1.0, 1.0]], dtype=float),
+        ),
+    )
+
+    class FailingViewer:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+            raise AttributeError("`np.infty` was removed in the NumPy 2.0 release. Use `np.inf` instead.")
+
+    monkeypatch.setattr(sys.modules["pyrender"], "Viewer", FailingViewer)
+
+    model_path = tmp_path / "robot.urdf"
+    model_path.write_text("<robot/>", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="NumPy compatibility error"):
+        pyrender_renderer.play(
+            model_path,
+            Trajectory.from_positions([[0.0, 0.0]], dt=0.1),
+            interactive=True,
+        )
 
 
 def test_generic_play_dispatches_pyrender_renderer(monkeypatch, tmp_path):

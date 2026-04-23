@@ -23,6 +23,7 @@ _LAZY_EXPORTS = {
     "get_kinematics_backend": (".kinematics.registry", "get_kinematics_backend"),
     "get_renderer": (".render.registry", "get_renderer"),
     "load_angles": (".core.angles", "load_angles"),
+    "load_camera_settings": (".config", "load_camera_settings"),
     "RobotModel": (".core.core", "RobotModel"),
     "Trajectory": (".core.core", "Trajectory"),
     "available_kinematics_backends": (".kinematics.registry", "available_kinematics_backends"),
@@ -36,6 +37,7 @@ _LAZY_EXPORTS = {
     "render_program": (".workflows", "render_program"),
     "resolve_program_dof": (".workflows", "resolve_program_dof"),
     "resolve_record_destination": (".core.recording", "resolve_record_destination"),
+    "save_camera_settings": (".config", "save_camera_settings"),
     "trajectory_from_file": (".workflows", "trajectory_from_file"),
     "trajectory_from_program": (".workflows", "trajectory_from_program"),
 }
@@ -110,6 +112,7 @@ __all__ = [
     "get_kinematics_backend",
     "get_renderer",
     "load_angles",
+    "load_camera_settings",
     "RobotModel",
     "Trajectory",
     "available_kinematics_backends",
@@ -126,6 +129,7 @@ __all__ = [
     "render_trajectory",
     "resolve_program_dof",
     "resolve_record_destination",
+    "save_camera_settings",
     "trajectory_from_file",
     "trajectory_from_program",
 ]

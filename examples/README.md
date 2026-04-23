@@ -12,14 +12,16 @@ Bundled assets:
 ## Running playback
 
 ```bash
-uv run ei-vo-play --model examples/models/three_dof_arm.urdf --program waypoints
+uv run ei-vo-play --model examples/models/three_dof_arm.urdf --trajectries examples/trajectories/three_dof_arm_waypoints.csv
 uv sync --extra meshcat
-uv run ei-vo-play --renderer meshcat --model examples/models/three_dof_arm.urdf --program waypoints
-uv run ei-vo-play --renderer matplotlib --model examples/models/three_dof_arm.urdf
+uv run ei-vo-play --renderer meshcat --model examples/models/three_dof_arm.urdf --trajectries examples/trajectories/three_dof_arm_waypoints.csv
+uv run ei-vo-view --model examples/models/three_dof_arm.urdf
+uv run ei-vo-play --renderer matplotlib --model examples/models/three_dof_arm.urdf --trajectries examples/trajectories/three_dof_arm_waypoints.csv
 uv sync --extra pyrender
-uv run ei-vo-play --renderer pyrender --model examples/models/three_dof_arm.urdf --program waypoints --record recordings/pyrender.mp4
-uv sync --extra pinocchio
-uv run ei-vo-play --renderer meshcat --model examples/models/three_dof_arm.urdf --backend pinocchio --base-link base --end-link ee
+uv run ei-vo-play --renderer pyrender --model examples/models/three_dof_arm.urdf --trajectries examples/trajectories/three_dof_arm_waypoints.csv --record recordings/pyrender.mp4
+uv run ei-vo-view --renderer pyrender --model examples/models/three_dof_arm.urdf
+uv sync --extra kinematics
+uv run ei-vo-play --renderer meshcat --model examples/models/three_dof_arm.urdf --trajectries examples/trajectories/three_dof_arm_waypoints.csv --backend literobo --base-link base --end-link ee
 ```
 
 The first command uses the default `matplotlib` renderer and does not attach a
@@ -36,10 +38,14 @@ defaults to `matplotlib` without a kinematics backend.
 
 ## Options
 
+The table below is for `ei-vo-play`. `ei-vo-view` accepts the shared
+model/renderer/camera/record options and always renders a single zero-joint
+pose.
+
 | Option | Description |
 | --- | --- |
 | `--renderer {matplotlib,meshcat,pyrender}` | Select the renderer backend |
-| `--backend {literobo,pinocchio}` | Attach a kinematics backend to the playback workflow |
+| `--backend {literobo}` | Attach a kinematics backend to the playback workflow |
 | `--base-link NAME` | Base link for the selected backend |
 | `--end-link NAME` | End link for the selected backend |
 | `--model PATH` | URDF model file. Required for the built-in renderers |
@@ -47,20 +53,60 @@ defaults to `matplotlib` without a kinematics backend.
 | `--deg` | Convert `--trajectries` input from degrees to radians |
 | `--hz FLOAT` | Playback frequency in Hz |
 | `--loop` | Loop playback until the viewer closes |
-| `--program {waypoints,sine}` | Built-in trajectory program when `--trajectries` is omitted |
 | `--segT FLOAT` | Segment duration for waypoint programs |
 | `--slow FLOAT` | Slow-motion playback factor |
 | `--cameraDistance FLOAT` | Camera distance for `meshcat`, `matplotlib`, or `pyrender` |
 | `--cameraAzimuth FLOAT` | Camera azimuth in degrees for `meshcat`, `matplotlib`, or `pyrender` |
 | `--cameraElevation FLOAT` | Camera elevation in degrees for `meshcat`, `matplotlib`, or `pyrender` |
+| `--cameraFile PATH` | Reuse a saved camera preset JSON or a MeshCat `scene.json` |
 | `--cameraLookat X Y Z` | Camera look-at point for `meshcat`, `matplotlib`, or `pyrender` |
+| `--saveCamera PATH` | Save the resolved camera as a reusable JSON preset |
 | `--record [PATH]` | Save backend output. Matplotlib and Pyrender write PNG or MP4, and MeshCat writes standalone HTML |
 | `--recordFps FLOAT` | Override recording FPS for Matplotlib or Pyrender video export, or MeshCat HTML animation |
 | `--recordSize W H` | Override video output resolution where supported |
 
 The built-in renderers and the optional kinematics backend all read the same
 URDF supplied via `--model`. MeshCat displays URDF `<visual>` geometry through
-Pinocchio.
+`urdfpy`.
+For `ei-vo-play`, omitting `--trajectries` uses the built-in `waypoints`
+motion. `ei-vo-view` instead shows the model in a single zero-joint pose.
+
+## Saving a view
+
+```bash
+uv run ei-vo-view \
+  --model examples/models/three_dof_arm.urdf
+```
+
+The default `meshcat` viewer stays open until you stop the command with
+`Ctrl+C`.
+
+Adjust the browser view, then use MeshCat's `Save / Load / Capture -> save_scene`
+to download `scene.json`.
+
+```bash
+uv run ei-vo-view \
+  --model examples/models/three_dof_arm.urdf \
+  --cameraFile ~/Downloads/scene.json \
+  --saveCamera recordings/front.camera.json
+```
+
+Later runs can reuse either file:
+
+```bash
+uv run ei-vo-view \
+  --model examples/models/three_dof_arm.urdf \
+  --cameraFile recordings/front.camera.json
+```
+
+Pyrender can also save the final live viewer camera when you close the window:
+
+```bash
+uv run ei-vo-view \
+  --renderer pyrender \
+  --model examples/models/three_dof_arm.urdf \
+  --saveCamera recordings/pyrender_view.camera.json
+```
 
 ## Recording
 
@@ -86,9 +132,11 @@ uv run ei-vo-play \
 
 Passing `--record` without a filename auto-generates a backend-specific output
 name under `recordings/`. MeshCat writes a standalone `.html` snapshot of the
-animated scene. Pyrender is offscreen-only and therefore always requires
-`--record`; on headless Linux hosts it may also need `PYOPENGL_PLATFORM=egl`
-or `PYOPENGL_PLATFORM=osmesa`. MP4 export requires `ffmpeg`.
+animated scene. `ei-vo-play --renderer pyrender` remains offscreen export and
+therefore requires `--record`, while `ei-vo-view --renderer pyrender` opens a
+live window instead. On headless Linux hosts, Pyrender offscreen export may
+also need `PYOPENGL_PLATFORM=egl` or `PYOPENGL_PLATFORM=osmesa`. MP4 export
+requires `ffmpeg`.
 
 ## Trajectory files
 

@@ -1,4 +1,5 @@
 import importlib
+import json
 import math
 import pathlib
 
@@ -15,6 +16,8 @@ from ei_vo.demo import (
     generate_demo_trajectory,
 )
 from ei_vo.programs import available_programs, generate_positions
+
+_EXAMPLE_MODEL = pathlib.Path(__file__).resolve().parents[1] / "examples/models/three_dof_arm.urdf"
 
 
 def test_load_angles_csv_in_degrees_single_row(tmp_path: pathlib.Path):
@@ -269,6 +272,109 @@ def test_cli_main_passes_camera_settings(monkeypatch):
     }
 
 
+def test_cli_main_loads_camera_file_and_applies_overrides(monkeypatch, tmp_path: pathlib.Path):
+    cli = importlib.import_module("ei_vo.cli.playback")
+    calls = {}
+    camera_path = tmp_path / "front.camera.json"
+    camera_path.write_text(
+        json.dumps(
+            {
+                "distance": 2.5,
+                "azimuth": 90.0,
+                "elevation": -10.0,
+                "lookat": [0.25, 0.5, 0.75],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(cli.os.path, "isfile", lambda path: True)
+    monkeypatch.setattr(cli, "_load_model_dof", lambda path: 3)
+
+    def fake_play(model_path, trajectory, **kwargs):
+        calls["model_path"] = model_path
+        calls["trajectory"] = trajectory
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(cli, "play", fake_play)
+
+    exit_code = cli.main(
+        [
+            "--renderer",
+            "meshcat",
+            "--model",
+            "robot.urdf",
+            "--program",
+            "waypoints",
+            "--cameraFile",
+            str(camera_path),
+            "--cameraElevation",
+            "15",
+        ]
+    )
+
+    assert exit_code == 0
+    assert calls["kwargs"]["camera"] == {
+        "distance": 2.5,
+        "azimuth": 90.0,
+        "elevation": 15.0,
+        "lookat": (0.25, 0.5, 0.75),
+    }
+
+
+def test_cli_main_can_save_camera_preset(monkeypatch, tmp_path: pathlib.Path):
+    cli = importlib.import_module("ei_vo.cli.playback")
+    calls = {}
+    output_path = tmp_path / "saved.camera.json"
+
+    monkeypatch.setattr(cli.os.path, "isfile", lambda path: True)
+    monkeypatch.setattr(cli, "_load_model_dof", lambda path: 3)
+
+    def fake_play(model_path, trajectory, **kwargs):
+        calls["model_path"] = model_path
+        calls["trajectory"] = trajectory
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(cli, "play", fake_play)
+
+    exit_code = cli.main(
+        [
+            "--renderer",
+            "meshcat",
+            "--model",
+            "robot.urdf",
+            "--program",
+            "waypoints",
+            "--cameraDistance",
+            "4.0",
+            "--cameraAzimuth",
+            "30",
+            "--cameraElevation",
+            "5",
+            "--cameraLookat",
+            "1.0",
+            "2.0",
+            "3.0",
+            "--saveCamera",
+            str(output_path),
+        ]
+    )
+
+    assert exit_code == 0
+    assert calls["kwargs"]["camera"] == {
+        "distance": 4.0,
+        "azimuth": 30.0,
+        "elevation": 5.0,
+        "lookat": (1.0, 2.0, 3.0),
+    }
+    assert json.loads(output_path.read_text(encoding="utf-8")) == {
+        "distance": 4.0,
+        "azimuth": 30.0,
+        "elevation": 5.0,
+        "lookat": [1.0, 2.0, 3.0],
+    }
+
+
 def test_cli_meshcat_record_defaults_to_html(monkeypatch, tmp_path: pathlib.Path):
     cli = importlib.import_module("ei_vo.cli.playback")
     monkeypatch.chdir(tmp_path)
@@ -339,6 +445,119 @@ def test_cli_matplotlib_renderer_uses_model(monkeypatch):
     assert calls["kwargs"]["renderer"] == "matplotlib"
 
 
+def test_view_cli_defaults_to_meshcat(monkeypatch):
+    view = importlib.import_module("ei_vo.cli.view")
+    calls = {}
+
+    def fake_play(model_path, trajectory, **kwargs):
+        calls["model_path"] = model_path
+        calls["trajectory"] = trajectory
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(view.playback, "play", fake_play)
+
+    exit_code = view.main(["--model", str(_EXAMPLE_MODEL)])
+
+    assert exit_code == 0
+    assert calls["model_path"] == str(_EXAMPLE_MODEL)
+    assert isinstance(calls["trajectory"], Trajectory)
+    assert calls["trajectory"].dof == 3
+    assert calls["trajectory"].meta == {"mode": "view"}
+    assert not np.allclose(calls["trajectory"].q, np.zeros((1, 3)))
+    assert calls["kwargs"]["renderer"] == "meshcat"
+    assert calls["kwargs"]["hold_open"] is True
+    assert calls["kwargs"]["camera"]["distance"] > 0.0
+    assert len(calls["kwargs"]["camera"]["lookat"]) == 3
+
+
+def test_view_cli_enables_interactive_pyrender_and_saves_final_camera(monkeypatch, tmp_path: pathlib.Path):
+    view = importlib.import_module("ei_vo.cli.view")
+    calls = {}
+    output_path = tmp_path / "saved.camera.json"
+    final_camera = view.playback.CameraSettings(
+        distance=3.0,
+        azimuth=45.0,
+        elevation=15.0,
+        lookat=(1.0, 2.0, 3.0),
+    )
+
+    def fake_play(model_path, trajectory, **kwargs):
+        calls["model_path"] = model_path
+        calls["trajectory"] = trajectory
+        calls["kwargs"] = kwargs
+        return final_camera
+
+    monkeypatch.setattr(view.playback, "play", fake_play)
+
+    exit_code = view.main(
+        [
+            "--renderer",
+            "pyrender",
+            "--model",
+            str(_EXAMPLE_MODEL),
+            "--saveCamera",
+            str(output_path),
+        ]
+    )
+
+    assert exit_code == 0
+    assert calls["kwargs"]["renderer"] == "pyrender"
+    assert calls["kwargs"]["interactive"] is True
+    assert json.loads(output_path.read_text(encoding="utf-8")) == {
+        "distance": 3.0,
+        "azimuth": 45.0,
+        "elevation": 15.0,
+        "lookat": [1.0, 2.0, 3.0],
+    }
+
+
+def test_view_cli_meshcat_save_camera_skips_hold_open(monkeypatch, tmp_path: pathlib.Path):
+    view = importlib.import_module("ei_vo.cli.view")
+    calls = {}
+    output_path = tmp_path / "saved.camera.json"
+
+    def fake_play(model_path, trajectory, **kwargs):
+        calls["model_path"] = model_path
+        calls["trajectory"] = trajectory
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(view.playback, "play", fake_play)
+
+    exit_code = view.main(
+        [
+            "--model",
+            str(_EXAMPLE_MODEL),
+            "--cameraDistance",
+            "4.0",
+            "--saveCamera",
+            str(output_path),
+        ]
+    )
+
+    assert exit_code == 0
+    assert "hold_open" not in calls["kwargs"]
+    saved = json.loads(output_path.read_text(encoding="utf-8"))
+    assert saved["distance"] == 4.0
+    assert saved["azimuth"] is None
+    assert saved["elevation"] is None
+    assert isinstance(saved["lookat"], list)
+    assert len(saved["lookat"]) == 3
+
+
+@pytest.mark.parametrize(
+    ("argv"),
+    [
+        ["--model", "robot.urdf", "--program", "waypoints"],
+        ["--model", "robot.urdf", "--trajectries", "trajectory.csv"],
+    ],
+)
+def test_view_cli_rejects_motion_arguments(argv):
+    view = importlib.import_module("ei_vo.cli.view")
+
+    with pytest.raises(SystemExit):
+        view.main(argv)
+
+
 def test_cli_accepts_trajectries_option(monkeypatch, tmp_path: pathlib.Path):
     cli = importlib.import_module("ei_vo.cli.playback")
     calls = {}
@@ -386,7 +605,7 @@ def test_cli_accepts_backend(monkeypatch):
             "--program",
             "waypoints",
             "--backend",
-            "pinocchio",
+            "literobo",
             "--base-link",
             "base",
             "--end-link",
@@ -398,7 +617,7 @@ def test_cli_accepts_backend(monkeypatch):
     assert calls["model_path"] == "robot.urdf"
     assert isinstance(calls["trajectory"], Trajectory)
     assert isinstance(calls["kwargs"]["kinematics"], KinematicsSpec)
-    assert calls["kwargs"]["kinematics"].backend == "pinocchio"
+    assert calls["kwargs"]["kinematics"].backend == "literobo"
     assert calls["kwargs"]["kinematics"].model_path == "robot.urdf"
     assert calls["kwargs"]["kinematics"].base_link == "base"
     assert calls["kwargs"]["kinematics"].end_link == "ee"
